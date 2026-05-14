@@ -1,0 +1,28 @@
+# 非主项目目录
+flutter_music
+fastApi
+
+# 构建产物
+out
+dist
+build
+coverage
+target
+native/**/target
+docs/.vitepress/cache
+docs/.vitepress/dist
+
+# 依赖目录
+node_modules
+native/**/node_modules
+native/ferrous-opencc-wasm/pkg
+
+# 生成文件
+pnpm-lock.yaml
+LICENSE.md
+auto-imports.d.ts
+components.d.ts
+native/**/index.d.ts
+# tsconfig.json
+# tsconfig.*.json
+auto-eslint.mjs
