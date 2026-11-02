@@ -13,14 +13,20 @@
         @click="playerMove"
       >
         <!-- 背景 -->
-        <PlayerBackground />
+        <PlayerBackground v-if="!foliaActive" />
+        <!-- 歌词特效 -->
+        <FoliaLyrics v-if="foliaActive" />
         <!-- 移动端 -->
         <FullPlayerMobile v-if="isTablet" />
         <!-- 桌面端 -->
         <template v-else>
           <!-- 独立歌词 -->
           <Transition name="fade" mode="out-in">
-            <div v-if="showInstantLyrics" :key="instantLyrics.content" class="lrc-instant">
+            <div
+              v-if="showInstantLyrics && !foliaActive"
+              :key="instantLyrics.content"
+              class="lrc-instant"
+            >
               <span class="lrc">{{ instantLyrics.content }}</span>
               <span v-if="instantLyrics.tran" class="lrc-tran">{{ instantLyrics.tran }}</span>
             </div>
@@ -28,10 +34,11 @@
           <!-- 菜单 -->
           <PlayerMenu @mouseenter.stop="stopHide" @mouseleave.stop="resumeHide" />
           <!-- 全屏封面 -->
-          <PlayerCover v-if="showFullScreenCover" />
+          <PlayerCover v-if="showFullScreenCover && !foliaActive" />
           <!-- 主内容 -->
           <Transition name="zoom" mode="out-in">
             <div
+              v-if="!foliaActive"
               :key="playerContentKey"
               :class="['player-content', playerContentClasses]"
               @mousemove="playerMove"
@@ -96,12 +103,19 @@
 import { useMobile } from "@/composables/useMobile";
 import { useStatusStore, useMusicStore, useSettingStore } from "@/stores";
 import { isElectron } from "@/utils/env";
+import { FOLIA_OFF } from "@/core/folia/catalog";
+import FoliaLyrics from "./FoliaLyrics.vue";
 
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();
 const settingStore = useSettingStore();
 
 const { isTablet } = useMobile();
+
+/** 是否显示歌词特效，打开评论时让位 */
+const foliaActive = computed(
+  () => settingStore.foliaStyle !== FOLIA_OFF && !isTablet.value && !showComment.value,
+);
 
 /** 封面主颜色 */
 const mainCoverColor = useCssVar("--main-cover-color", document.documentElement);

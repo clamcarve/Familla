@@ -164,10 +164,10 @@ export const useSongMenu = () => {
     return false;
   };
 
-  const resolvePlaylistMode = (song: SongType): "online" | "local" | "my" => {
+  const resolvePlaylistMode = (song: SongType): "online" | "local" | "my" | "choice" => {
     if (song.path) return "local";
     if ((song.platform || platformStore.currentPlatform) !== "netease") return "my";
-    return "online";
+    return "choice";
   };
 
   const isThirdPartySong = (song: SongType) => {

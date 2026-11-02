@@ -101,6 +101,15 @@
                     </n-text>
                   </div>
                 </div>
+                <!-- 下载 -->
+                <div
+                  v-if="songData.type === 'song' && !songData.path"
+                  class="download"
+                  title="下载歌曲"
+                  @click.stop="downloadSong(songData)"
+                >
+                  <SvgIcon :size="20" name="Download" />
+                </div>
                 <!-- 移除 -->
                 <div class="remove" @click.stop="player.removeSongIndex(index)">
                   <SvgIcon :size="20" name="Delete" />
@@ -171,11 +180,19 @@ import { usePlayerController } from "@/core/player/PlayerController";
 import { useDataStore, useSettingStore, useStatusStore } from "@/stores";
 import { removeBrackets } from "@/utils/format";
 import { useDragSort } from "@/composables/List/useDragSort";
+import { useDownloadManager } from "@/core/resource/DownloadManager";
+import type { SongType } from "@/types/main";
 
 const dataStore = useDataStore();
 const statusStore = useStatusStore();
 const settingStore = useSettingStore();
 const player = usePlayerController();
+const downloadManager = useDownloadManager();
+
+const downloadSong = (song: SongType) => {
+  const added = downloadManager.addDownload(song, settingStore.downloadSongLevel);
+  if (added) window.$message.success("已添加到下载任务");
+};
 
 const playListRef = ref<InstanceType<typeof VirtualScroll> | null>(null);
 
@@ -358,6 +375,7 @@ const {
         }
       }
     }
+    .download,
     .remove {
       display: flex;
       align-items: center;

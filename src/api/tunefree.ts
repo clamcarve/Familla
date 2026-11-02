@@ -1,4 +1,5 @@
 import { QualityType, type CoverType, type MusicPlatformType, type SongType } from "@/types/main";
+import axios from "axios";
 import request from "@/utils/request";
 import { CLOUD_API_BASE_URL } from "./base";
 
@@ -20,6 +21,33 @@ type PlatformApiResult<T> = {
 
 const THIRD_PARTY_ID_SEED = 2000000000;
 const THIRD_PARTY_QUALITY_FALLBACK = "128k";
+const PARSE_CACHE_TTL = 10 * 60 * 1000;
+
+type PlatformParseResult = {
+  url: string;
+  remainingToday?: number;
+  /** 实际音质 */
+  actualQuality: ThirdPartyQualityLevel;
+  /** 文件扩展名 */
+  fileType: string;
+};
+
+type CachedParseResult = PlatformParseResult & {
+  expiresAt: number;
+};
+
+const platformParseCache = new Map<string, CachedParseResult>();
+const platformParseRequests = new Map<string, Promise<PlatformParseResult>>();
+
+export class PaidApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PaidApiError";
+  }
+}
 
 export type ThirdPartyQualityLevel = "128k" | "320k" | "flac" | "flac24bit";
 
@@ -85,7 +113,7 @@ const normalizePlatformSongId = (
       return rawId;
     }
     case "kugou":
-      return String(item["audioId"] || item["id"] || item["songid"] || item["hash"] || "").trim();
+      return String(item["hash"] || item["audioId"] || item["id"] || item["songid"] || "").trim();
     case "netease":
     default:
       return String(item["id"] || item["songId"] || "").trim();
@@ -213,6 +241,7 @@ const unwrapResult = <T>(
   return result as unknown as T;
 };
 
+// 后端最高到 Hi-Res，旧设置中的更高音质统一回落
 const normalizeThirdPartyQuality = (quality?: string | null): ThirdPartyQualityLevel => {
   const value = String(quality || "")
     .trim()
@@ -230,6 +259,11 @@ const normalizeThirdPartyQuality = (quality?: string | null): ThirdPartyQualityL
       return "flac";
     case "flac24bit":
     case "hires":
+    case "jyeffect":
+    case "sky":
+    case "dolby":
+    case "vivid":
+    case "jymaster":
       return "flac24bit";
     default:
       return THIRD_PARTY_QUALITY_FALLBACK;
@@ -275,6 +309,163 @@ export const getThirdPartyTrackIds = (
     String(meta["songId"] || meta["songid"] || meta["id"] || "").trim(),
   ];
   return Array.from(new Set(candidates.filter(Boolean)));
+};
+
+type ParsedAudioItem = {
+  url: string;
+  record: Record<string, unknown>;
+};
+
+const extractAudioItem = (value: unknown, depth = 0): ParsedAudioItem | null => {
+  if (depth > 6 || value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    return /^https?:\/\//i.test(value.trim()) ? { url: value.trim(), record: {} } : null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = extractAudioItem(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["url", "play_url", "playUrl", "music_url", "musicUrl"]) {
+    const candidate = record[key];
+    if (typeof candidate === "string" && /^https?:\/\//i.test(candidate.trim())) {
+      return { url: candidate.trim(), record };
+    }
+  }
+  for (const key of ["data", "list", "songs", "result", "response"]) {
+    const found = extractAudioItem(record[key], depth + 1);
+    if (found) return found;
+  }
+  return null;
+};
+
+const AUDIO_FILE_TYPES = ["flac", "mp3", "m4a", "aac", "ogg", "opus", "wav"];
+const QUALITY_DOWNGRADE_ORDER: ThirdPartyQualityLevel[] = ["flac24bit", "flac", "320k", "128k"];
+
+export const getUrlFileType = (url: string): string => {
+  try {
+    const extension = new URL(url).pathname.split(".").pop()?.toLowerCase() || "";
+    return AUDIO_FILE_TYPES.includes(extension) ? extension : "";
+  } catch {
+    return "";
+  }
+};
+
+// 后端标注可能与文件不符，以链接扩展名校正
+const resolveParsedAudio = (item: ParsedAudioItem, requested: ThirdPartyQualityLevel) => {
+  const reported = item.record["actualQuality"] || item.record["quality"] || requested;
+  let actualQuality = normalizeThirdPartyQuality(String(reported));
+  const isLossless = actualQuality === "flac" || actualQuality === "flac24bit";
+  const urlFileType = getUrlFileType(item.url);
+  if (isLossless && urlFileType && urlFileType !== "flac" && urlFileType !== "wav") {
+    actualQuality = "320k";
+  }
+  return { actualQuality, fileType: urlFileType || (isLossless ? "flac" : "mp3") };
+};
+
+const getPaidApiErrorMessage = (status: number, detail: unknown): string => {
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  switch (status) {
+    case 401:
+      return "mobi 登录状态已失效，请重新登录";
+    case 403:
+      return "需要有效 VIP 会员才能解析歌曲";
+    case 429:
+      return "今日解析次数已用完，将在 UTC 次日重置";
+    case 502:
+    case 503:
+      return "歌曲解析服务暂时不可用，请稍后重试";
+    default:
+      return "歌曲解析失败，请稍后重试";
+  }
+};
+
+export const parsePlatformSong = async (
+  token: string,
+  platform: MusicPlatformType,
+  id: string,
+  quality: string = THIRD_PARTY_QUALITY_FALLBACK,
+): Promise<PlatformParseResult> => {
+  const normalizedToken = String(token || "").trim();
+  if (!normalizedToken) throw new PaidApiError(401, "请先登录 mobi 账号后播放歌曲");
+  const normalizedQuality = normalizeThirdPartyQuality(quality);
+  const cacheKey = `${normalizedToken.slice(-16)}:${platform}:${id}:${normalizedQuality}`;
+  const cached = platformParseCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    const { expiresAt: _expiresAt, ...result } = cached;
+    return result;
+  }
+  const pending = platformParseRequests.get(cacheKey);
+  if (pending) return pending;
+
+  const requestParse = async (requested: ThirdPartyQualityLevel) => {
+    const response = await axios.post(
+      `${CLOUD_API_BASE_URL}/tunefree/parse`,
+      { platform, ids: id, quality: requested },
+      {
+        timeout: 30000,
+        headers: {
+          Authorization: `Bearer ${normalizedToken}`,
+          "X-Idempotency-Key":
+            typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        },
+      },
+    );
+    const item = extractAudioItem(response.data);
+    if (!item) throw new PaidApiError(502, "解析服务未返回可用的歌曲地址");
+    const remaining = Number(response.headers["x-daily-parse-remaining"]);
+    const result: PlatformParseResult = {
+      url: item.url,
+      ...resolveParsedAudio(item, requested),
+      ...(Number.isFinite(remaining) ? { remainingToday: remaining } : {}),
+    };
+    return result;
+  };
+
+  const requestPromise = (async () => {
+    try {
+      // 该音质无资源时逐级降级
+      const candidates = QUALITY_DOWNGRADE_ORDER.slice(
+        QUALITY_DOWNGRADE_ORDER.indexOf(normalizedQuality),
+      );
+      for (const [index, candidate] of candidates.entries()) {
+        try {
+          const result = await requestParse(candidate);
+          platformParseCache.set(cacheKey, { ...result, expiresAt: Date.now() + PARSE_CACHE_TTL });
+          return result;
+        } catch (error) {
+          const status =
+            error instanceof PaidApiError
+              ? error.status
+              : axios.isAxiosError(error)
+                ? error.response?.status
+                : undefined;
+          if (status !== 502 || index === candidates.length - 1) throw error;
+        }
+      }
+      throw new PaidApiError(502, "解析服务未返回可用的歌曲地址");
+    } catch (error) {
+      if (error instanceof PaidApiError) throw error;
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status || 503;
+        throw new PaidApiError(
+          status,
+          getPaidApiErrorMessage(status, error.response?.data?.detail),
+        );
+      }
+      throw new PaidApiError(503, "歌曲解析服务连接失败，请稍后重试");
+    } finally {
+      platformParseRequests.delete(cacheKey);
+    }
+  })();
+  platformParseRequests.set(cacheKey, requestPromise);
+  return requestPromise;
 };
 
 const normalizeThirdPartyTitle = (item: Record<string, any>) =>
@@ -433,19 +624,6 @@ export const getPlatformPlaylist = async (
   });
   const data = unwrapResult<any>(result);
   return normalizePlaylistDetail(platform, id, data);
-};
-
-export const getPlatformStreamUrl = (
-  platform: MusicPlatformType,
-  id: string,
-  quality: string = THIRD_PARTY_QUALITY_FALLBACK,
-): string => {
-  const params = new URLSearchParams({
-    platform,
-    id,
-    quality: normalizeThirdPartyQuality(quality),
-  });
-  return `${CLOUD_API_BASE_URL}/tunefree/stream?${params.toString()}`;
 };
 
 const normalizeSearchSongs = (platform: MusicPlatformType, raw: any): SongType[] => {

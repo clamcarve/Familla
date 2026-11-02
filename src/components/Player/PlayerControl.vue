@@ -32,7 +32,7 @@
                   ? 'local'
                   : musicStore.playSong.platform && musicStore.playSong.platform !== 'netease'
                     ? 'my'
-                    : 'online',
+                    : 'choice',
               )
             "
           >

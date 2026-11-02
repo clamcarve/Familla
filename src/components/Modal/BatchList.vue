@@ -80,7 +80,7 @@
                 ? 'local'
                 : checkSongData.some((item) => item.platform && item.platform !== 'netease')
                   ? 'my'
-                  : 'online',
+                  : 'choice',
             )
           "
         >

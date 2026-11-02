@@ -24,7 +24,11 @@
         </div>
         <n-flex v-if="isDesktop" :wrap="false" class="user-data" size="small">
           <n-text class="name text-hidden">
-            {{ dataStore.userLoginStatus ? dataStore.userData.name || "未知用户名" : "未登录" }}
+            {{
+              dataStore.userLoginStatus
+                ? `网易云 · ${dataStore.userData.name || "未知用户名"}`
+                : "网易云登录"
+            }}
           </n-text>
           <!-- VIP -->
           <img

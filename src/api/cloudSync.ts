@@ -1,5 +1,12 @@
 import axios, { AxiosError } from "axios";
 import type { MusicPlatformType, MyPlaylistType, SongType } from "@/types/main";
+import {
+  buildCloudBackupSnapshot,
+  createEmptyCloudManifest,
+  decodeCloudBackup,
+  parseCloudBackupSnapshot,
+  type CloudBackupSnapshot,
+} from "@/utils/cloudBackup";
 import { CLOUD_API_BASE_URL } from "./base";
 
 const THIRD_PARTY_ID_SEED = 2000000000;
@@ -10,6 +17,9 @@ export type CloudUserInfo = {
   id: number;
   email: string;
   iswap: number;
+  remaining_download_count?: number;
+  vip_level?: number;
+  vip_expires_at?: string | null;
   created_at: string;
 };
 
@@ -21,6 +31,23 @@ export type CloudLoginResponse = {
 
 export type CloudPlaylistSnapshot = {
   playlists: MyPlaylistType[];
+};
+
+export type MembershipStatus = {
+  user_id: number;
+  email: string;
+  vip_level: number;
+  vip_expires_at: string | null;
+  vip_active: boolean;
+  daily_limit: number;
+  used_today: number;
+  remaining_today: number;
+  usage_date: string;
+};
+
+export type RedeemMembershipResponse = {
+  success: boolean;
+  membership: MembershipStatus;
 };
 
 export type CloudPopup = {
@@ -60,7 +87,97 @@ type CloudPlaylistPayload = {
 
 const cloudRequest = axios.create({
   baseURL: CLOUD_API_BASE_URL,
-  timeout: 15000,
+  timeout: 30000,
+  headers: {
+    "X-Mobi-Client": "flutter",
+    "X-Mobi-Key-Id": "v1",
+  },
+});
+
+const textEncoder = new TextEncoder();
+const mobiSignSecret = String(import.meta.env["VITE_MOBI_API_SIGN_SECRET"] || "").trim();
+const compareText = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0;
+
+const sortJsonValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(sortJsonValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => compareText(left, right))
+        .map(([key, child]) => [key, sortJsonValue(child)]),
+    );
+  }
+  return value;
+};
+
+const digestHex = async (algorithm: AlgorithmIdentifier, bytes: Uint8Array): Promise<string> => {
+  const source = new Uint8Array(bytes);
+  const digest = await crypto.subtle.digest(algorithm, source.buffer);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const createNonce = (): string => {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+};
+
+const encodeQueryValue = (value: string): string =>
+  encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+
+const getCanonicalQuery = (url: URL): string =>
+  Array.from(url.searchParams.entries())
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+      const keyOrder = compareText(leftKey, rightKey);
+      return keyOrder || compareText(leftValue, rightValue);
+    })
+    .map(([key, value]) => `${encodeQueryValue(key)}=${encodeQueryValue(value)}`)
+    .join("&");
+
+const createSignature = async (canonical: string): Promise<string> => {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    textEncoder.encode(mobiSignSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, textEncoder.encode(canonical));
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+cloudRequest.interceptors.request.use(async (config) => {
+  if (!mobiSignSecret) return config;
+
+  const method = String(config.method || "GET").toUpperCase();
+  const url = new URL(config.url || "/", CLOUD_API_BASE_URL);
+  let bodyText = "";
+  if (config.data !== undefined && config.data !== null) {
+    bodyText =
+      typeof config.data === "string" ? config.data : JSON.stringify(sortJsonValue(config.data));
+    config.data = bodyText;
+    config.headers.set("Content-Type", "application/json");
+  }
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = createNonce();
+  const bodyHash = await digestHex("SHA-256", textEncoder.encode(bodyText));
+  const canonical = [method, url.pathname, getCanonicalQuery(url), timestamp, nonce, bodyHash].join(
+    "\n",
+  );
+  config.headers.set("X-Mobi-Timestamp", timestamp);
+  config.headers.set("X-Mobi-Nonce", nonce);
+  config.headers.set("X-Mobi-Signature", await createSignature(canonical));
+  return config;
 });
 
 const stableHash = (text: string): number => {
@@ -381,16 +498,20 @@ const mapFamillaLikeSongForRestore = (rawSong: Record<string, any>): SongType | 
 };
 
 const mapCloudPlaylistToFamilla = (rawPlaylist: Record<string, any>): MyPlaylistType => {
+  const hasCloudTracks =
+    Array.isArray(rawPlaylist["tracks"]) || Array.isArray(rawPlaylist["trackIds"]);
   const cloudTracks = Array.isArray(rawPlaylist["tracks"])
     ? rawPlaylist["tracks"]
-    : Array.isArray(rawPlaylist["songs"])
-      ? rawPlaylist["songs"]
-      : [];
+    : Array.isArray(rawPlaylist["trackIds"])
+      ? rawPlaylist["trackIds"]
+      : Array.isArray(rawPlaylist["songs"])
+        ? rawPlaylist["songs"]
+        : [];
 
   const songs = cloudTracks
     .map((track) => {
       const record = toRecord(track);
-      if (Array.isArray(rawPlaylist["tracks"])) {
+      if (hasCloudTracks) {
         return mapCloudTrackToFamillaSong(record);
       }
       return mapFamillaLikeSongForRestore(record);
@@ -461,15 +582,38 @@ export const loginCloudAccount = async (
   }
 };
 
+const fetchCloudBackupSnapshot = async (token: string): Promise<CloudBackupSnapshot | null> => {
+  const { data } = await cloudRequest.get<{ data?: unknown }>("/user-data/sync", {
+    headers: getAuthHeaders(token),
+  });
+  return parseCloudBackupSnapshot(data?.data);
+};
+
 export const backupCloudPlaylists = async (
   token: string,
   playlists: MyPlaylistType[],
 ): Promise<void> => {
-  const payload = playlists.map(mapFamillaPlaylistToCloud);
   try {
+    const initialSnapshot = await fetchCloudBackupSnapshot(token);
+    const decoded = initialSnapshot
+      ? await decodeCloudBackup(initialSnapshot)
+      : {
+          manifest: createEmptyCloudManifest(),
+          retainedFiles: {},
+        };
+    const nextSnapshot = await buildCloudBackupSnapshot(
+      decoded.manifest,
+      decoded.retainedFiles,
+      playlists,
+      mapFamillaPlaylistToCloud,
+    );
+    const latestSnapshot = await fetchCloudBackupSnapshot(token);
+    if ((latestSnapshot?.sha256 || "") !== (initialSnapshot?.sha256 || "")) {
+      throw new Error("云端备份已被其他设备更新，请重新检查后再备份");
+    }
     await cloudRequest.post(
-      "/playlists/backup",
-      { playlists: payload },
+      "/user-data/backup",
+      { data: nextSnapshot },
       { headers: getAuthHeaders(token) },
     );
   } catch (error) {
@@ -482,11 +626,22 @@ export const backupCloudPlaylists = async (
 
 export const syncCloudPlaylists = async (token: string): Promise<CloudPlaylistSnapshot> => {
   try {
-    const { data } = await cloudRequest.get<{ playlists?: unknown[] }>("/playlists/sync", {
-      headers: getAuthHeaders(token),
-    });
+    const snapshot = await fetchCloudBackupSnapshot(token);
+    if (!snapshot) throw new Error("云端暂无可恢复的备份");
+    const { manifest } = await decodeCloudBackup(snapshot);
+    const rawPlaylists = manifest.preferences["user_playlists"];
+    if (rawPlaylists !== undefined && typeof rawPlaylists !== "string") {
+      throw new Error("云端备份中的歌单数据格式无效");
+    }
+    let playlists: unknown = [];
+    try {
+      playlists = rawPlaylists ? JSON.parse(rawPlaylists) : [];
+    } catch {
+      throw new Error("云端备份中的歌单数据损坏");
+    }
+    if (!Array.isArray(playlists)) throw new Error("云端备份中的歌单数据格式无效");
     return {
-      playlists: mapCloudPlaylistsToFamilla(data?.playlists || []),
+      playlists: mapCloudPlaylistsToFamilla(playlists),
     };
   } catch (error) {
     if (isUnauthorizedError(error)) {
@@ -510,7 +665,49 @@ export const reportCloudAppLaunch = async (token?: string): Promise<void> => {
     await cloudRequest.post("/app/launch", null, {
       headers: getAuthHeaders(token),
     });
-  } catch {
+  } catch (error) {
     // 启动上报失败不影响主流程
+    console.warn("启动行为上报失败：", error);
+  }
+};
+
+export const getCloudAccount = async (token: string): Promise<CloudUserInfo> => {
+  try {
+    const { data } = await cloudRequest.get<CloudUserInfo>("/auth/me", {
+      headers: getAuthHeaders(token),
+    });
+    return data;
+  } catch (error) {
+    if (isUnauthorizedError(error)) throw new Error("登录状态已失效，请重新登录");
+    throw new Error(getErrorMessage(error));
+  }
+};
+
+export const getMembershipStatus = async (token: string): Promise<MembershipStatus> => {
+  try {
+    const { data } = await cloudRequest.get<MembershipStatus>("/membership/status", {
+      headers: getAuthHeaders(token),
+    });
+    return data;
+  } catch (error) {
+    if (isUnauthorizedError(error)) throw new Error("登录状态已失效，请重新登录");
+    throw new Error(getErrorMessage(error));
+  }
+};
+
+export const redeemMembership = async (
+  token: string,
+  codeHash: string,
+): Promise<RedeemMembershipResponse> => {
+  try {
+    const { data } = await cloudRequest.post<RedeemMembershipResponse>(
+      "/membership/redeem",
+      { code_hash: codeHash },
+      { headers: getAuthHeaders(token) },
+    );
+    return data;
+  } catch (error) {
+    if (isUnauthorizedError(error)) throw new Error("登录状态已失效，请重新登录");
+    throw new Error(getErrorMessage(error));
   }
 };

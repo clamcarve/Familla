@@ -303,6 +303,7 @@ export const useStatusStore = defineStore("status", {
       return (
         !!audioSource &&
         audioSource !== "official" &&
+        audioSource !== "netease" &&
         audioSource !== "qq" &&
         audioSource !== "kuwo" &&
         audioSource !== "kugou" &&

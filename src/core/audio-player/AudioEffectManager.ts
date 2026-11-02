@@ -1,6 +1,8 @@
 /**
  * @fileoverview 负责均衡器和频谱分析的管理器
  */
+import { createAudioEffectChain, type AudioEffectChain } from "./effects/effectChain";
+import type { AudioEffectSettings } from "./effects/audioEffects";
 
 export class AudioEffectManager {
   private audioCtx: AudioContext;
@@ -14,6 +16,9 @@ export class AudioEffectManager {
   private highPassFilter: BiquadFilterNode | null = null;
   /** AutoMIX 专用滤波器：低通 (用于切出时过滤低频) */
   private lowPassFilter: BiquadFilterNode | null = null;
+
+  /** 音效链，首次开启时才接入，保证默认链路不变 */
+  private effectChain: AudioEffectChain | null = null;
 
   /** 平滑后的低频音量 */
   private smoothedLowFreqVolume: number = 0;
@@ -186,6 +191,29 @@ export class AudioEffectManager {
   }
 
   /**
+   * 设置音效
+   * @param effects 音效参数
+   * @param enabled 是否开启
+   */
+  public setAudioEffects(effects: AudioEffectSettings, enabled: boolean) {
+    if (this.effectChain) {
+      this.effectChain.apply(effects, enabled);
+      return;
+    }
+    if (!enabled || !this.analyserNode) return;
+    const lastFilter = this.filters[this.filters.length - 1];
+    if (!lastFilter) return;
+    lastFilter.disconnect(this.analyserNode);
+    this.effectChain = createAudioEffectChain({
+      context: this.audioCtx,
+      input: lastFilter,
+      output: this.analyserNode,
+      effects,
+      enabled,
+    });
+  }
+
+  /**
    * 设置均衡器增益
    * @param index 频段索引 (0-9)
    * @param value 增益值 (-40 ~ 40)
@@ -284,6 +312,8 @@ export class AudioEffectManager {
    * 清理资源，断开连接
    */
   public disconnect() {
+    this.effectChain?.dispose();
+    this.effectChain = null;
     this.filters.forEach((f) => f.disconnect());
     this.highPassFilter?.disconnect();
     this.lowPassFilter?.disconnect();

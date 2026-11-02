@@ -2,6 +2,7 @@ import { useSettingStore } from "@/stores";
 import { TypedEventTarget } from "@/utils/TypedEventTarget";
 import type { IExtendedAudioContext } from "@/types/audio/context";
 import { AudioEffectManager } from "./AudioEffectManager";
+import type { AudioEffectSettings } from "./effects/audioEffects";
 import type { EngineCapabilities, IPlaybackEngine, FadeCurve } from "./IPlaybackEngine";
 import { getSharedAudioContext, getSharedMasterInput } from "../automix/SharedAudioContext";
 
@@ -438,6 +439,11 @@ export abstract class BaseAudioPlayer
   /** 获取低频音量 */
   public getLowFrequencyVolume(): number {
     return this.effectManager ? this.effectManager.getLowFrequencyVolume() : 0;
+  }
+
+  /** 设置音效 */
+  public setAudioEffects(effects: AudioEffectSettings, enabled: boolean) {
+    this.effectManager?.setAudioEffects(effects, enabled);
   }
 
   /** 设置滤波器增益 */

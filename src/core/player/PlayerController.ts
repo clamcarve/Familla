@@ -1,7 +1,14 @@
 import { toRaw } from "vue";
 import { AudioErrorCode } from "@/core/audio-player/BaseAudioPlayer";
-import { getPlatformCover } from "@/api/tunefree";
-import { useDataStore, useMusicStore, useSettingStore, useStatusStore } from "@/stores";
+import { KugouLoginRequiredError } from "@/api/kugou";
+import { getPlatformCover, PaidApiError } from "@/api/tunefree";
+import {
+  useCloudSyncStore,
+  useDataStore,
+  useMusicStore,
+  useSettingStore,
+  useStatusStore,
+} from "@/stores";
 import type { AudioSourceType, QualityType, SongType } from "@/types/main";
 import type { RepeatModeType, ShuffleModeType } from "@/types/shared/play-mode";
 import { type AudioAnalysis } from "@/types/audio/automix";
@@ -12,6 +19,7 @@ import { getPlayerInfoObj, getPlaySongData } from "@/utils/format";
 import { handleSongQuality, shuffleArray, sleep } from "@/utils/helper";
 import lastfmScrobbler from "@/utils/lastfmScrobbler";
 import { DJ_MODE_KEYWORDS } from "@/utils/meta";
+import { openCloudSync, openKugouLogin } from "@/utils/modal";
 import { calculateProgress } from "@/utils/time";
 import type { LyricLine } from "@applemusic-like-lyrics/lyric";
 import { type DebouncedFunc, throttle } from "lodash-es";
@@ -382,6 +390,22 @@ class PlayerController {
     } catch (error) {
       if (requestToken === this.currentRequestToken) {
         console.error("❌ 播放初始化失败:", error);
+        if (error instanceof KugouLoginRequiredError) {
+          statusStore.playLoading = false;
+          window.$message.warning(error.message);
+          void openKugouLogin();
+          return;
+        }
+        if (error instanceof PaidApiError) {
+          const cloudSyncStore = useCloudSyncStore();
+          statusStore.playLoading = false;
+          if (error.status === 401) cloudSyncStore.clearSession();
+          window.$message.error(error.message);
+          if (error.status === 401 || error.status === 403) {
+            void openCloudSync();
+          }
+          return;
+        }
         this.handlePlaybackError(undefined);
       }
     }
@@ -724,6 +748,10 @@ class PlayerController {
         if (bands && bands.length === 10) {
           bands.forEach((val, idx) => audioManager.setFilterGain(idx, val));
         }
+      }
+      // 恢复音效
+      if (settingStore.audioEffectsEnabled) {
+        audioManager.setAudioEffects(settingStore.audioEffects, true);
       }
       if (isElectron) {
         // 更新喜欢状态

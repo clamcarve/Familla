@@ -20,6 +20,7 @@ const compat = new FlatCompat({
 export default [
   {
     ignores: [
+      "src/folia/**",
       "**/node_modules",
       "**/dist",
       "**/out",

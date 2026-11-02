@@ -335,6 +335,9 @@ const initFileIpc = (): void => {
     }
   });
 
+  // 获取系统下载目录
+  ipcMain.handle("get-default-download-path", () => app.getPath("downloads"));
+
   // 下载文件
   ipcMain.handle("download-file", (event, url, options) =>
     downloadService.downloadFile(event, url, options),

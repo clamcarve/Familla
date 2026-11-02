@@ -1,4 +1,5 @@
 import { useSettingStore } from "@/stores";
+import type { AudioEffectSettings } from "@/core/audio-player/effects/audioEffects";
 import { checkIsolationSupport, isElectron } from "@/utils/env";
 import { TypedEventTarget } from "@/utils/TypedEventTarget";
 import { AudioElementPlayer } from "../audio-player/AudioElementPlayer";
@@ -416,6 +417,13 @@ class AudioManager extends TypedEventTarget<AudioEventMap> implements IPlaybackE
 
   public setLowPassQ(q: number): void {
     this.engine.setLowPassQ?.(q);
+  }
+
+  /**
+   * 设置音效
+   */
+  public setAudioEffects(effects: AudioEffectSettings, enabled: boolean): void {
+    this.engine.setAudioEffects?.(effects, enabled);
   }
 
   /**

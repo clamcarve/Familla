@@ -8,6 +8,7 @@
     "electron/preload/index.d.ts",
     "dist/lastfm.ts"
   ],
+  "exclude": ["src/folia/**/*"],
   "compilerOptions": {
     "composite": true,
     "esModuleInterop": true,

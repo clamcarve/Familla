@@ -30,9 +30,9 @@ export const useQualityControl = () => {
   const settingStore = useSettingStore();
 
   const player = usePlayerController();
-  const isThirdPartySong = computed(() => {
+  const isBackendSong = computed(() => {
     const song = musicStore.playSong;
-    return Boolean(song.platform && song.platform !== "netease" && song.type === "song");
+    return !song.path && song.type === "song";
   });
 
   // 获取音质名称
@@ -41,8 +41,7 @@ export const useQualityControl = () => {
     if (song.path) return "本地";
     if (song.pc) return "云盘";
     if (song.type === "radio") return "电台";
-    if (statusStore.isUnlocked) return "解锁";
-    if (isThirdPartySong.value) {
+    if (isBackendSong.value) {
       const currentLevel =
         availableQualities.value.find((q) => handleSongQuality(q) === quality)?.level ||
         settingStore.thirdPartySongQuality;
@@ -59,19 +58,19 @@ export const useQualityControl = () => {
   const currentPlayingLevel = computed(() => {
     const current = statusStore.songQuality;
     if (!current || !availableQualities.value.length) {
-      return isThirdPartySong.value ? settingStore.thirdPartySongQuality : settingStore.songLevel;
+      return isBackendSong.value ? settingStore.thirdPartySongQuality : settingStore.songLevel;
     }
     // 在可用列表中找到与当前播放音质名称匹配的级别
     const found = availableQualities.value.find((q) => handleSongQuality(q) === current);
     if (found) return found.level;
-    return isThirdPartySong.value ? settingStore.thirdPartySongQuality : current;
+    return isBackendSong.value ? settingStore.thirdPartySongQuality : current;
   });
 
   // 音质选项
   const qualityOptions = computed<DropdownOption[]>(() => {
     return availableQualities.value.map((item) => {
       // 是否为当前设置的音质
-      const isDefaultQuality = isThirdPartySong.value
+      const isDefaultQuality = isBackendSong.value
         ? settingStore.thirdPartySongQuality === item.level
         : settingStore.songLevel === item.level;
       // 是否为当前实际播放的音质
@@ -112,12 +111,11 @@ export const useQualityControl = () => {
    * @param isPreload 是否为预加载模式（静默加载，无错误提示）
    */
   const loadQualities = async (isPreload = false) => {
-    // 本地歌曲或解锁歌曲不支持切换
-    if (musicStore.playSong.path || statusStore.isUnlocked || musicStore.playSong.type !== "song")
-      return;
+    // 本地歌曲和非歌曲类型不支持切换
+    if (musicStore.playSong.path || musicStore.playSong.type !== "song") return;
     // 如果已经加载过，不重复加载
     if (statusStore.availableQualities.length > 0) return;
-    if (isThirdPartySong.value) {
+    if (isBackendSong.value) {
       statusStore.availableQualities = thirdPartyQualityOptions.map((item) => ({
         name: item.name,
         level: item.level,
@@ -129,6 +127,7 @@ export const useQualityControl = () => {
       }
       return;
     }
+    if (statusStore.isUnlocked) return;
     const songId = musicStore.playSong.id;
     if (!songId) return;
     try {
@@ -162,7 +161,7 @@ export const useQualityControl = () => {
   // 选择音质
   const handleQualitySelect = async (key: string) => {
     // 如果选择的和当前一样，不处理
-    if (isThirdPartySong.value) {
+    if (isBackendSong.value) {
       if (settingStore.thirdPartySongQuality === key) {
         return;
       }
@@ -172,7 +171,7 @@ export const useQualityControl = () => {
     const item = availableQualities.value.find((q) => q.level === key);
     if (!item) return;
     // 更新音质
-    if (isThirdPartySong.value) {
+    if (isBackendSong.value) {
       settingStore.thirdPartySongQuality = key as typeof settingStore.thirdPartySongQuality;
     } else {
       settingStore.songLevel = key as typeof settingStore.songLevel;
@@ -194,9 +193,9 @@ export const useQualityControl = () => {
     preloadQualities,
     handleQualitySelect,
     getQualityName,
-    isOnlineSong: computed(() => {
+    canSwitchQuality: computed(() => {
       const song = musicStore.playSong;
-      return !song.path && !song.pc && song.type === "song" && !statusStore.isUnlocked;
+      return !song.path && !song.pc && song.type === "song";
     }),
   };
 };

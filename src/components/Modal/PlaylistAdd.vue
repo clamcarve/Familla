@@ -1,8 +1,86 @@
 <!-- 添加到歌单 -->
 <template>
   <div class="playlist-add">
+    <template v-if="mode === 'choice'">
+      <n-tabs v-model:value="choiceMode" type="segment" animated>
+        <n-tab-pane name="my" tab="mobi 歌单">
+          <n-scrollbar style="max-height: 62vh">
+            <n-list class="playlists-list" hoverable clickable>
+              <n-list-item class="playlist add" @click="openCreatePlaylist('my')">
+                <template #prefix>
+                  <SvgIcon name="Add" :size="20" />
+                </template>
+                <n-thing title="创建 mobi 歌单" />
+              </n-list-item>
+              <n-list-item
+                v-for="item in myPlaylists"
+                :key="item.id"
+                class="playlist"
+                @click="addToMyPlaylist(item.id)"
+              >
+                <template #prefix>
+                  <n-image
+                    :src="item.cover || '/images/album.jpg?asset'"
+                    class="cover"
+                    preview-disabled
+                    lazy
+                    @load="coverLoaded"
+                  />
+                </template>
+                <n-thing :title="item.name">
+                  <template #description>
+                    <n-text depth="3" class="size">{{ item.songs.length }} 首音乐</n-text>
+                  </template>
+                </n-thing>
+              </n-list-item>
+              <n-empty
+                v-if="myPlaylists.length === 0"
+                description="暂无 mobi 歌单"
+                style="padding: 40px 0"
+              />
+            </n-list>
+          </n-scrollbar>
+        </n-tab-pane>
+        <n-tab-pane name="online" tab="网易云歌单">
+          <n-flex v-if="!isLogin()" vertical :size="12">
+            <n-alert type="warning" show-icon> 请先登录网易云账号后使用官方歌单。 </n-alert>
+            <n-button secondary @click="openUserLogin()">网易云登录</n-button>
+          </n-flex>
+          <n-scrollbar v-else style="max-height: 62vh">
+            <n-list class="playlists-list" hoverable clickable>
+              <n-list-item
+                v-for="(item, index) in onlinePlaylists"
+                :key="item.id"
+                class="playlist"
+                @click="addToOnlinePlaylist(Number(item.id), index)"
+              >
+                <template #prefix>
+                  <n-image
+                    :src="item.coverSize?.s || '/images/album.jpg?asset'"
+                    class="cover"
+                    preview-disabled
+                    lazy
+                    @load="coverLoaded"
+                  />
+                </template>
+                <n-thing :title="index === 0 ? '我喜欢的音乐' : item.name">
+                  <template #description>
+                    <n-text depth="3" class="size">{{ item.count }} 首音乐</n-text>
+                  </template>
+                </n-thing>
+              </n-list-item>
+              <n-empty
+                v-if="onlinePlaylists.length === 0"
+                description="暂无网易云歌单"
+                style="padding: 40px 0"
+              />
+            </n-list>
+          </n-scrollbar>
+        </n-tab-pane>
+      </n-tabs>
+    </template>
     <!-- 在线歌曲只能添加到在线歌单 -->
-    <template v-if="mode === 'online'">
+    <template v-else-if="mode === 'online'">
       <n-scrollbar style="max-height: 70vh">
         <n-list class="playlists-list" hoverable clickable>
           <!-- 新建歌单 -->
@@ -142,7 +220,7 @@ import { coverLoaded } from "@/utils/helper";
 import { playlistTracks } from "@/api/playlist";
 import { debounce } from "lodash-es";
 import { isLogin, updateUserLikePlaylist, updateUserLikeSongs } from "@/utils/auth";
-import { openCreatePlaylist } from "@/utils/modal";
+import { openCreatePlaylist, openUserLogin } from "@/utils/modal";
 
 const props = defineProps<{
   data: SongType[];
@@ -156,6 +234,7 @@ const emit = defineEmits<{
 const dataStore = useDataStore();
 const localStore = useLocalStore();
 const myPlaylistStore = useMyPlaylistStore();
+const choiceMode = ref<"my" | "online">("my");
 
 // 加载提示
 const loadingMsg = ref<MessageReactive>();

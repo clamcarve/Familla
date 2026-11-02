@@ -58,7 +58,7 @@ export type AudioSourceType =
 
 export type MusicPlatformType = "netease" | "qq" | "kuwo" | "kugou";
 
-export type PlaylistStorageMode = "online" | "local" | "my";
+export type PlaylistStorageMode = "online" | "local" | "my" | "choice";
 
 export type PlatformTrackIdType = string;
 

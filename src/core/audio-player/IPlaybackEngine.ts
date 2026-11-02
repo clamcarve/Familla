@@ -1,3 +1,5 @@
+import type { AudioEffectSettings } from "./effects/audioEffects";
+
 /**
  * 播放引擎能力描述
  */
@@ -147,6 +149,13 @@ export interface IPlaybackEngine {
    * @param deviceId 设备 ID
    */
   setSinkId(deviceId: string): Promise<void>;
+
+  /**
+   * 设置音效
+   * @param effects 音效参数
+   * @param enabled 是否开启
+   */
+  setAudioEffects?(effects: AudioEffectSettings, enabled: boolean): void;
 
   /**
    * 设置均衡器增益

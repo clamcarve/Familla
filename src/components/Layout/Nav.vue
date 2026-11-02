@@ -16,9 +16,27 @@
         </n-button>
       </template>
     </n-flex>
-    <div v-if="settingStore.useOnlineService" class="nav-center">
+    <n-flex
+      v-if="settingStore.useOnlineService"
+      :wrap="false"
+      align="center"
+      size="small"
+      class="nav-center"
+    >
       <PlatformSwitch />
-    </div>
+      <n-button
+        class="account-entry"
+        :focusable="false"
+        secondary
+        title="mobi登录与会员中心"
+        @click="openCloudSync"
+      >
+        <template #icon>
+          <SvgIcon name="Cloud" />
+        </template>
+        <span>mobi登录</span>
+      </n-button>
+    </n-flex>
     <!-- 主内容 -->
     <n-flex :wrap="false" justify="end" class="nav-main">
       <!-- 搜索 -->
@@ -26,7 +44,7 @@
       <!-- 可拖拽 -->
       <div v-if="isDesktop" class="nav-drag" />
       <n-flex align="center">
-        <!-- 用户 -->
+        <!-- 网易云用户 -->
         <User v-if="settingStore.useOnlineService" />
         <!-- 设置菜单 -->
         <n-dropdown :options="setOptions" trigger="click" @select="setSelect">
@@ -136,7 +154,13 @@
 import type { DropdownOption } from "naive-ui";
 import { useSettingStore, useStatusStore } from "@/stores";
 import { renderIcon } from "@/utils/helper";
-import { openSetting, openThemeConfig, openScalingModal } from "@/utils/modal";
+import {
+  openCloudSync,
+  openDownloadTasks,
+  openScalingModal,
+  openSetting,
+  openThemeConfig,
+} from "@/utils/modal";
 import { isDev, isElectron } from "@/utils/env";
 import { useMobile } from "@/composables/useMobile";
 import PlatformSwitch from "@/components/Platform/PlatformSwitch.vue";
@@ -218,6 +242,12 @@ const setOptions = computed<DropdownOption[]>(() => [
     show: isElectron,
   },
   {
+    key: "download-tasks",
+    label: "下载任务",
+    icon: renderIcon("Download"),
+    show: isElectron,
+  },
+  {
     key: "divider-1",
     type: "divider",
   },
@@ -253,6 +283,9 @@ const setSelect = (key: string) => {
       break;
     case "zoom":
       openScalingModal();
+      break;
+    case "download-tasks":
+      openDownloadTasks();
       break;
     case "setting":
       openSetting();
@@ -295,6 +328,7 @@ onMounted(async () => {
   .nav-main {
     position: relative;
     flex: 1;
+    min-width: 0;
     align-items: center;
     height: 100%;
     margin-left: 12px;
@@ -305,11 +339,16 @@ onMounted(async () => {
     }
   }
   .nav-center {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
+    flex: none;
+    margin-left: 12px;
     z-index: 10;
     -webkit-app-region: no-drag;
+  }
+  .account-entry {
+    width: auto;
+    min-width: 40px;
+    padding: 0 12px;
+    white-space: nowrap;
   }
   .client-control {
     .divider {
@@ -343,11 +382,16 @@ onMounted(async () => {
       right: 100px;
     }
   }
-  @media (max-width: 1024px) {
+  @media (max-width: 1180px) {
     .nav-center {
-      position: static;
-      transform: none;
-      margin: 0 12px;
+      margin-left: 8px;
+      :deep(.platform-switch-nav) {
+        min-width: 104px;
+        padding: 0 10px;
+        .platform-label {
+          display: none;
+        }
+      }
     }
   }
 }

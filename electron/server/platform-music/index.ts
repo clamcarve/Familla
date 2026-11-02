@@ -3,6 +3,7 @@ import axios from "axios";
 import { inflateSync } from "zlib";
 import { serverLog } from "../../main/logger";
 import { decryptQrc } from "../qqmusic/qrc";
+import { initKugouConceptAPI } from "./kugou-concept";
 
 type PlatformType = "qq" | "kuwo" | "kugou";
 
@@ -166,7 +167,7 @@ const normalizePlatformSongId = (platform: PlatformType, item: Record<string, an
     }
     case "kugou":
       return String(
-        item["audioId"] || item["audio_id"] || item["id"] || item["songid"] || item["hash"] || "",
+        item["hash"] || item["audioId"] || item["audio_id"] || item["id"] || item["songid"] || "",
       ).trim();
   }
 };
@@ -1010,7 +1011,7 @@ const fetchKugouCover = async (song: Record<string, any>) => {
     song["platformAlbumId"] || song["albumId"] || song["thirdPartyMeta"]?.["albumId"] || "",
   ).trim();
   const audioId = String(
-    song["platformSongId"] || song["audioId"] || song["thirdPartyMeta"]?.["audioId"] || "",
+    song["audioId"] || song["thirdPartyMeta"]?.["audioId"] || song["platformSongId"] || "",
   ).trim();
 
   if (!hash) {
@@ -1289,9 +1290,15 @@ export const initPlatformMusicAPI = async (fastify: FastifyInstance) => {
         "/api/platform-music/toplist",
         "/api/platform-music/cover",
         "/api/platform-music/lyric",
+        "/api/platform-music/kugou/qr/key",
+        "/api/platform-music/kugou/qr/check",
+        "/api/platform-music/kugou/checkin",
+        "/api/platform-music/kugou/url",
       ],
     });
   });
+
+  initKugouConceptAPI(fastify);
 
   fastify.get(
     "/platform-music/search",
