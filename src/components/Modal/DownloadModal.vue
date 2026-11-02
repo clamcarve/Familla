@@ -8,11 +8,7 @@
     <n-collapse-transition :show="!loading && songs.length > 0">
       <n-flex :size="20" vertical>
         <n-alert title="请知悉" type="info">
-          {{
-            isCloudSong && !isBatch
-              ? "当前为云盘歌曲，下载的文件均为上传时的源文件"
-              : "本软件仅支持从官方途径合法合规的下载歌曲，并用于学习研究用途。本功能将严格按照相应账户的权限来提供基础的下载功能"
-          }}
+          音频文件由后台代理获取，请仅在获得授权的情况下下载和使用。
         </n-alert>
         <!-- 歌曲信息卡片（单个下载时显示） -->
         <SongDataCard v-if="!isBatch && songs[0]" :data="songs[0]" />
@@ -72,13 +68,11 @@
 <script setup lang="ts">
 import type { SongType, SongLevelType } from "@/types/main";
 import { useSettingStore } from "@/stores";
-import { songLevelData, getSongLevelsData, AI_AUDIO_LEVELS } from "@/utils/meta";
 import { formatFileSize } from "@/utils/helper";
 import { openSetting } from "@/utils/modal";
 import { isElectron } from "@/utils/env";
 import { songDetail } from "@/api/song";
 import { formatSongsList } from "@/utils/format";
-import { pick } from "lodash-es";
 import { useDownloadManager } from "@/core/resource/DownloadManager";
 
 const props = defineProps<{
@@ -97,8 +91,6 @@ const loading = ref<boolean>(false);
 const songs = ref<SongType[]>(props.songs || []);
 
 const isBatch = computed(() => songs.value.length > 1);
-const isCloudSong = computed(() => songs.value.some((song) => song.pc));
-
 const selectedQuality = ref<SongLevelType>(props.quality || settingStore.downloadSongLevel || "h");
 const downloadPath = computed(() => settingStore.downloadPath);
 
@@ -110,21 +102,12 @@ const canDownload = computed(() => {
 
 // 音质选项
 const qualityOptions = computed(() => {
-  const levels = pick(songLevelData, ["l", "m", "h", "sq", "hr", "je", "sk", "db", "jm"]);
-  let allData = getSongLevelsData(levels);
-
-  if (settingStore.disableAiAudio) {
-    allData = allData.filter((item) => {
-      if (item.level === "dolby") return true;
-      return !AI_AUDIO_LEVELS.includes(item.level);
-    });
-  }
-
-  return allData.map((item) => ({
-    label: item.name,
-    value: item.value,
-    size: undefined,
-  }));
+  return [
+    { label: "标准音质", value: "l", size: undefined },
+    { label: "极高音质", value: "h", size: undefined },
+    { label: "无损音质", value: "sq", size: undefined },
+    { label: "Hi-Res", value: "hr", size: undefined },
+  ];
 });
 
 // 获取歌曲详情（单个下载时）

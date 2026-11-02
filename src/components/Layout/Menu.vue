@@ -32,7 +32,7 @@ import type { CoverType } from "@/types/main";
 import { isLogin } from "@/utils/auth";
 import { isElectron } from "@/utils/env";
 import { renderIcon } from "@/utils/helper";
-import { openCloudSync, openCreatePlaylist } from "@/utils/modal";
+import { openCreatePlaylist } from "@/utils/modal";
 import { debounce } from "lodash-es";
 import {
   type MenuGroupOption,
@@ -247,17 +247,6 @@ const menuOptions = computed<MenuOption[] | MenuGroupOption[]>(() => {
                 onClick: (event: Event) => {
                   event.stopPropagation();
                   openCreatePlaylist("my");
-                },
-              }),
-              h(NButton, {
-                type: "tertiary",
-                round: true,
-                strong: true,
-                secondary: true,
-                renderIcon: renderIcon("Cloud"),
-                onClick: (event: Event) => {
-                  event.stopPropagation();
-                  openCloudSync();
                 },
               }),
             ]),

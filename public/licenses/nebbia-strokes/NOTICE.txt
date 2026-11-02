@@ -1,0 +1,11 @@
+nebbia-strokes.json - stroke medians for the Nebbia lyric style
+
+Derived from AnimCJK <https://github.com/parsimonhi/animCJK>, commit
+99dba566b92daf45ae20d05e6c91d3f68d8619f2 (graphicsJaKana.txt, graphicsZhHans.txt, graphicsJa.txt).
+AnimCJK - Copyright 2016-2026 - FM&SH. Its graphics data derive from the Arphic PL KaitiM
+GB / Big5 fonts and the Makemeahanzi project; see COPYING.txt.
+
+Modified: only the "medians" of each character are kept, outlines and other fields are dropped;
+y is flipped to point down (y' = 900 - y, a 1024 grid); strokes outside the grid (kana animation
+helpers) are removed; a character in more than one file is taken from the first of them in the
+order above. Distributed under the Arphic Public License, see ARPHICPL.TXT and COPYING.txt.

@@ -7,7 +7,8 @@ import type { SettingConfig } from "@/types/settings";
 import { DEFAULT_TASKBAR_CONFIG, TASKBAR_IPC_CHANNELS, type TaskbarConfig } from "@/types/shared";
 import { isElectron, isWin, isMac } from "@/utils/env";
 import { descMultiline } from "@/utils/format";
-import { openAMLLServer, openExcludeLyric, openFontManager } from "@/utils/modal";
+import { openAMLLServer, openExcludeLyric, openFoliaEffects, openFontManager } from "@/utils/modal";
+import { FOLIA_OFF, FOLIA_STYLES, getFoliaStyleName } from "@/core/folia/catalog";
 import { cloneDeep, isEqual } from "lodash-es";
 import { toRef } from "vue";
 import LyricPreview from "../components/LyricPreview.vue";
@@ -118,6 +119,40 @@ export const useLyricSettings = (): SettingConfig => {
   return {
     onActivate,
     groups: [
+      {
+        title: "全屏歌词特效",
+        items: [
+          {
+            key: "foliaEffects",
+            label: "特效中心",
+            type: "button",
+            description: () =>
+              `当前：${getFoliaStyleName(settingStore.foliaStyle)}。可选 14 种动画样式、背景和音效，播放栏右侧的“特效”按钮也能打开`,
+            buttonLabel: "打开特效中心",
+            action: openFoliaEffects,
+          },
+          {
+            key: "foliaStyle",
+            label: "全屏歌词样式",
+            type: "select",
+            description: "选择后在全屏播放页生效，“关闭”时使用原有歌词界面",
+            options: [
+              { label: "关闭", value: FOLIA_OFF },
+              ...FOLIA_STYLES.map((style) => ({
+                label: `${style.name}（${style.desc}）`,
+                value: style.id,
+              })),
+            ],
+            value: computed({
+              get: () => settingStore.foliaStyle,
+              set: (v) => {
+                settingStore.foliaStyle = v;
+                if (v !== FOLIA_OFF) settingStore.foliaLastStyle = v;
+              },
+            }),
+          },
+        ],
+      },
       {
         title: "歌词设置",
         items: [

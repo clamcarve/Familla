@@ -5,10 +5,39 @@ import { join, resolve } from "node:path";
 import { ipcLog } from "../logger";
 import { useStore } from "../store";
 import { loadNativeModule } from "../utils/native-loader";
+import { detectAudioType } from "../utils/audio-type";
 import { getArtistNames } from "../utils/format";
 
 type toolModule = typeof import("@native/tools");
 const tools: toolModule = loadNativeModule("tools.node", "tools");
+
+/**
+ * 写入歌曲标签，失败不影响已下载的音频
+ * @param filePath 音频路径
+ * @param metadata 元数据
+ */
+const writeDownloadMetadata = async (filePath: string, metadata: SongMetadata) => {
+  const coverPath = metadata.coverUrl ? `${filePath}.cover` : undefined;
+  try {
+    let hasCover = false;
+    if (metadata.coverUrl && coverPath) {
+      try {
+        const response = await fetch(metadata.coverUrl, { signal: AbortSignal.timeout(30000) });
+        if (response.ok) {
+          await writeFile(coverPath, Buffer.from(await response.arrayBuffer()));
+          hasCover = true;
+        }
+      } catch (error) {
+        ipcLog.warn("⚠️ Download cover failed:", error);
+      }
+    }
+    await tools.writeMusicMetadata(filePath, metadata, hasCover ? coverPath : undefined);
+  } catch (error) {
+    ipcLog.warn("⚠️ Write download metadata failed:", error);
+  } finally {
+    if (coverPath) await unlink(coverPath).catch(() => {});
+  }
+};
 
 export class DownloadService {
   /** 存储活动下载任务：ID -> DownloadTask 实例 */
@@ -44,7 +73,11 @@ export class DownloadService {
       fileType: "mp3",
       path: app.getPath("downloads"),
     },
-  ): Promise<{ status: "success" | "skipped" | "error" | "cancelled"; message?: string }> {
+  ): Promise<{
+    status: "success" | "skipped" | "error" | "cancelled";
+    message?: string;
+    path?: string;
+  }> {
     try {
       // 获取窗口
       const win = BrowserWindow.fromWebContents(event.sender);
@@ -73,7 +106,7 @@ export class DownloadService {
         await mkdir(downloadPath, { recursive: true });
       }
       // 规范化文件名
-      const finalFilePath = fileType
+      let finalFilePath = fileType
         ? join(downloadPath, `${fileName}.${fileType}`)
         : join(downloadPath, fileName);
       // 检查文件是否存在
@@ -93,7 +126,7 @@ export class DownloadService {
         await mkdir(tempDir, { recursive: true });
       }
       const tempFileName = fileType ? `${fileName}.${fileType}` : fileName;
-      const tempFilePath = join(tempDir, tempFileName);
+      let tempFilePath = join(tempDir, tempFileName);
       // 准备元数据
       let metadata: SongMetadata | undefined | null = null;
       if (downloadMeta && songData) {
@@ -180,12 +213,22 @@ export class DownloadService {
         await task.download(
           finalUrl,
           tempFilePath,
-          metadata,
+          null,
           threadCount,
           referer,
           onProgress,
           enableHttp2,
         );
+        // 后端音质标注不可靠，按实际内容修正扩展名
+        const actualType = await detectAudioType(tempFilePath);
+        if (actualType && actualType !== fileType) {
+          ipcLog.info(`🎵 Download type corrected: ${fileType} -> ${actualType}`);
+          const correctedTempPath = join(tempDir, `${fileName}.${actualType}`);
+          await rename(tempFilePath, correctedTempPath);
+          tempFilePath = correctedTempPath;
+          finalFilePath = join(downloadPath, `${fileName}.${actualType}`);
+        }
+        if (metadata) await writeDownloadMetadata(tempFilePath, metadata);
         // 下载完成后重命名为最终文件名
         await rename(tempFilePath, finalFilePath);
       } catch (err) {
@@ -206,7 +249,7 @@ export class DownloadService {
         await writeFile(lrcPath, lyric, "utf-8");
       }
 
-      return { status: "success" };
+      return { status: "success", path: finalFilePath };
     } catch (error: any) {
       ipcLog.error("❌ Error downloading file:", error);
       if ((error.message && error.message.includes("cancelled")) || error.code === "Cancelled") {

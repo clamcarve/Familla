@@ -1,6 +1,7 @@
 # 非主项目目录
 flutter_music
 fastApi
+.codex
 
 # 构建产物
 out
@@ -26,3 +27,6 @@ native/**/index.d.ts
 # tsconfig.json
 # tsconfig.*.json
 auto-eslint.mjs
+
+# 移植代码
+src/folia

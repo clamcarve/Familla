@@ -13,18 +13,10 @@
         }}
       </span>
       <!-- 额外信息 -->
-      <n-flex
-        v-if="(statusStore.isUnlocked && !isThirdPartySong) || musicStore.playSong.pc"
-        class="extra-info"
-        align="center"
-      >
+      <n-flex v-if="musicStore.playSong.pc" class="extra-info" align="center">
         <n-popover :show-arrow="false" placement="right" raw>
           <template #trigger>
-            <SvgIcon
-              :depth="3"
-              :name="musicStore.playSong.pc ? 'Cloud' : 'CloudLockOpen'"
-              size="22"
-            />
+            <SvgIcon :depth="3" name="Cloud" size="22" />
           </template>
           <div class="player-tip">
             {{
@@ -164,11 +156,6 @@ const statusStore = useStatusStore();
 const settingStore = useSettingStore();
 const lyricManager = useLyricManager();
 const player = usePlayerController();
-const isThirdPartySong = computed(() => {
-  const song = musicStore.playSong;
-  return !!song.platform && song.platform !== "netease" && song.type === "song";
-});
-
 // 当前歌词模式
 const lyricMode = computed(() => {
   if (settingStore.showWordLyrics) {

@@ -4,6 +4,7 @@ import { useDownloadManager } from "@/core/resource/DownloadManager";
 import { getActiveCloudPopup, reportCloudAppLaunch } from "@/api/cloudSync";
 import {
   useCloudSyncStore,
+  useKugouStore,
   useDataStore,
   useSettingStore,
   useShortcutStore,
@@ -23,6 +24,8 @@ const FINAL_FOCUS_DELAY_MS = 500;
 /**
  * 应用初始化时需要执行的操作
  */
+const KUGOU_CHECK_IN_INTERVAL = 60 * 60 * 1000;
+
 export const useInit = () => {
   // init pinia-data
   const dataStore = useDataStore();
@@ -30,6 +33,7 @@ export const useInit = () => {
   const settingStore = useSettingStore();
   const shortcutStore = useShortcutStore();
   const cloudSyncStore = useCloudSyncStore();
+  const kugouStore = useKugouStore();
 
   const player = usePlayerController();
   const downloadManager = useDownloadManager();
@@ -42,6 +46,8 @@ export const useInit = () => {
     settingStore.checkAndMigrate();
     // 打印版本信息
     printVersion();
+    // 记录启动
+    void reportCloudAppLaunch(cloudSyncStore.token);
     // 启动公告
     const popup = await getActiveCloudPopup().catch((error) => {
       console.warn("获取启动公告失败：", error);
@@ -49,10 +55,11 @@ export const useInit = () => {
     });
     // 用户协议与公告
     openUserAgreement(popup);
-    // 记录启动
-    void reportCloudAppLaunch(cloudSyncStore.token);
     // 加载数据
     await dataStore.loadData();
+    // 酷狗每日签到，定时检查以覆盖跨天运行
+    void kugouStore.checkIn(true);
+    setInterval(() => void kugouStore.checkIn(true), KUGOU_CHECK_IN_INTERVAL);
     // 初始化 MediaSession
     mediaSessionManager.init();
     // 初始化播放器
@@ -85,6 +92,11 @@ export const useInit = () => {
     );
 
     if (isElectron) {
+      // 初始化默认下载目录
+      if (!settingStore.downloadPath) {
+        settingStore.downloadPath =
+          (await window.electron.ipcRenderer.invoke("get-default-download-path")) || "";
+      }
       // 注册全局快捷键
       shortcutStore.registerAllShortcuts();
       // 初始化下载管理器

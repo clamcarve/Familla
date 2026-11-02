@@ -1,15 +1,12 @@
-import { useSettingStore, useStatusStore } from "@/stores";
+import { useSettingStore } from "@/stores";
 import { useCacheManager } from "@/core/resource/CacheManager";
 import { formatFileSize } from "@/utils/helper";
-import { songLevelData, getSongLevelsData, AI_AUDIO_LEVELS } from "@/utils/meta";
 import { SettingConfig } from "@/types/settings";
 import { openLocalMusicDirectoryModal } from "@/utils/modal";
-import { pick } from "lodash-es";
 import LocalLyricDirectories from "../components/LocalLyricDirectories.vue";
 import CacheSizeLimit from "../components/CacheSizeLimit.vue";
 
 export const useLocalSettings = (): SettingConfig => {
-  const statusStore = useStatusStore();
   const settingStore = useSettingStore();
   const cacheManager = useCacheManager();
 
@@ -104,22 +101,12 @@ export const useLocalSettings = (): SettingConfig => {
   });
 
   // 默认下载音质选项
-  const downloadQualityOptions = computed(() => {
-    const levels = pick(songLevelData, ["l", "m", "h", "sq", "hr", "je", "sk", "db", "jm"]);
-    let allData = getSongLevelsData(levels);
-
-    if (settingStore.disableAiAudio) {
-      allData = allData.filter((item) => {
-        if (item.level === "dolby") return true;
-        return !AI_AUDIO_LEVELS.includes(item.level);
-      });
-    }
-
-    return allData.map((item) => ({
-      label: item.name,
-      value: item.value,
-    }));
-  });
+  const downloadQualityOptions = [
+    { label: "标准音质", value: "l" },
+    { label: "极高音质", value: "h" },
+    { label: "无损音质", value: "sq" },
+    { label: "Hi-Res", value: "hr" },
+  ];
 
   const fileNameFormatOptions = [
     { label: "歌曲名", value: "title" },
@@ -132,41 +119,6 @@ export const useLocalSettings = (): SettingConfig => {
     { label: "按歌手分文件夹", value: "artist" },
     { label: "按 歌手 \\ 专辑 分文件夹", value: "artist-album" },
   ];
-
-  // 模拟播放下载开关
-  const handlePlaybackDownloadChange = (value: boolean) => {
-    if (value) {
-      window.$dialog.warning({
-        title: "开启提示",
-        content:
-          "模拟播放下载可能导致部分音质歌词嵌入异常且未经完整测试可能有不稳定情况，确认要打开吗？",
-        positiveText: "确认打开",
-        negativeText: "取消",
-        onPositiveClick: () => {
-          settingStore.usePlaybackForDownload = true;
-        },
-      });
-    } else {
-      settingStore.usePlaybackForDownload = false;
-    }
-  };
-
-  // 解锁接口下载开关
-  const handleUnlockDownloadChange = (value: boolean) => {
-    if (value) {
-      window.$dialog.warning({
-        title: "开启提示",
-        content: "开启此功能可能导致音质下降和与原曲不一致等情况，确认要打开吗？",
-        positiveText: "确认打开",
-        negativeText: "取消",
-        onPositiveClick: () => {
-          settingStore.useUnlockForDownload = true;
-        },
-      });
-    } else {
-      settingStore.useUnlockForDownload = false;
-    }
-  };
 
   // 歌词编码更改
   const handleLyricEncodingChange = (value: "utf-8" | "gbk" | "utf-16" | "iso-8859-1") => {
@@ -186,6 +138,12 @@ export const useLocalSettings = (): SettingConfig => {
   const chooseDownloadPath = async () => {
     const path = await window.electron.ipcRenderer.invoke("choose-path");
     if (path) settingStore.downloadPath = path;
+  };
+
+  // 恢复系统下载目录
+  const resetDownloadPath = async () => {
+    settingStore.downloadPath =
+      (await window.electron.ipcRenderer.invoke("get-default-download-path")) || "";
   };
 
   return {
@@ -259,14 +217,29 @@ export const useLocalSettings = (): SettingConfig => {
           },
           {
             key: "songCacheEnabled",
-            label: "缓存歌曲",
+            label: "在线歌曲临时缓存",
             type: "switch",
-            description: "是否缓存歌曲音频，关闭后可节省缓存空间",
+            description: "听过的歌曲再次播放时直接读取本地文件，不再请求服务器",
             value: computed({
               get: () => settingStore.songCacheEnabled,
               set: (v) => (settingStore.songCacheEnabled = v),
             }),
             condition: () => settingStore.cacheEnabled,
+          },
+          {
+            key: "songCacheLimit",
+            label: "临时缓存上限",
+            type: "slider",
+            description: () =>
+              `当前 ${settingStore.songCacheLimit} MB，超出后清理最久未播放的歌曲，下次缓存时生效`,
+            min: 100,
+            max: 5000,
+            step: 100,
+            value: computed({
+              get: () => settingStore.songCacheLimit,
+              set: (v) => (settingStore.songCacheLimit = v),
+            }),
+            condition: () => settingStore.cacheEnabled && settingStore.songCacheEnabled,
           },
           {
             key: "cacheLimit",
@@ -299,21 +272,20 @@ export const useLocalSettings = (): SettingConfig => {
       },
       {
         title: "下载配置",
-        show: computed(() => statusStore.isDeveloperMode),
         items: [
           {
             key: "downloadPath",
             label: "默认下载目录",
             type: "button",
-            description: computed(() => settingStore.downloadPath || "若不设置则无法进行下载"),
+            description: computed(() => settingStore.downloadPath || "系统下载目录"),
             buttonLabel: "更改",
             action: chooseDownloadPath,
             extraButton: {
-              label: "清除选择",
+              label: "恢复默认",
               type: "primary",
               secondary: true,
               strong: true,
-              action: () => (settingStore.downloadPath = ""),
+              action: resetDownloadPath,
               show: computed(() => !!settingStore.downloadPath),
             },
           },
@@ -332,7 +304,7 @@ export const useLocalSettings = (): SettingConfig => {
             key: "downloadSongLevel",
             label: "默认下载音质",
             type: "select",
-            description: "默认使用的音质，实际可用音质取决于账号权限和歌曲资源",
+            description: "默认使用的音质，最高 Hi-Res，歌曲没有对应资源时自动降级",
             options: downloadQualityOptions,
             value: computed({
               get: () => settingStore.downloadSongLevel,
@@ -426,28 +398,6 @@ export const useLocalSettings = (): SettingConfig => {
             value: computed({
               get: () => settingStore.folderStrategy,
               set: (v) => (settingStore.folderStrategy = v),
-            }),
-          },
-          {
-            key: "usePlaybackForDownload",
-            label: "模拟播放下载",
-            type: "switch",
-            tags: [{ text: "Beta", type: "warning" }],
-            description: "使用播放接口进行下载，可能解决部分下载失败问题",
-            value: computed({
-              get: () => settingStore.usePlaybackForDownload,
-              set: (v) => handlePlaybackDownloadChange(v),
-            }),
-          },
-          {
-            key: "useUnlockForDownload",
-            label: "使用解锁接口下载",
-            type: "switch",
-            tags: [{ text: "Beta", type: "warning" }],
-            description: "利用配置的解锁服务获取下载链接（优先于默认方式）",
-            value: computed({
-              get: () => settingStore.useUnlockForDownload,
-              set: (v) => handleUnlockDownloadChange(v),
             }),
           },
           {

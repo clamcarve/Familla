@@ -134,6 +134,7 @@ const settingStore = useSettingStore();
 const dataStore = useDataStore();
 
 const blobURLManager = useBlobURLManager();
+const defaultBackgroundInitializedKey = "default-background-shuwu-v1";
 
 const { isDesktop, isMobile } = useMobile();
 
@@ -143,19 +144,42 @@ const contentRef = ref<HTMLElement | null>(null);
 // 主内容高度
 const { height: contentHeight } = useElementSize(contentRef);
 
-// 加载背景图
+const showBackgroundImage = async (blob: Blob) => {
+  const arrayBuffer = await blob.arrayBuffer();
+  statusStore.backgroundImageUrl = blobURLManager.createBlobURL(
+    arrayBuffer,
+    blob.type,
+    "background-image",
+  );
+};
+
+// 加载或初始化背景图
 const loadBackgroundImage = async () => {
   if (statusStore.backgroundImageUrl) return;
-  if (statusStore.themeBackgroundMode === "image" || statusStore.themeBackgroundMode === "video") {
-    const blob = await dataStore.getBackgroundImage();
-    if (blob) {
-      const arrayBuffer = await blob.arrayBuffer();
-      statusStore.backgroundImageUrl = blobURLManager.createBlobURL(
-        arrayBuffer,
-        blob.type,
-        "background-image",
-      );
+
+  const storedBackground = await dataStore.getBackgroundImage();
+  if (storedBackground) {
+    localStorage.setItem(defaultBackgroundInitializedKey, "1");
+    if (
+      statusStore.themeBackgroundMode === "image" ||
+      statusStore.themeBackgroundMode === "video"
+    ) {
+      await showBackgroundImage(storedBackground);
     }
+    return;
+  }
+  if (localStorage.getItem(defaultBackgroundInitializedKey)) return;
+
+  try {
+    const response = await fetch("/images/shuwu.jpg?asset");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const defaultBackground = await response.blob();
+    await dataStore.saveBackgroundImage(defaultBackground);
+    statusStore.themeBackgroundMode = "image";
+    await showBackgroundImage(defaultBackground);
+    localStorage.setItem(defaultBackgroundInitializedKey, "1");
+  } catch (error) {
+    console.error("默认背景图加载失败：", error);
   }
 };
 
@@ -167,7 +191,7 @@ watchEffect(() => {
 useInit();
 
 onMounted(() => {
-  loadBackgroundImage();
+  void loadBackgroundImage();
   if (!isElectron) {
     window.addEventListener("beforeunload", (event) => {
       event.preventDefault();

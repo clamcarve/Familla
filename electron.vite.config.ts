@@ -16,6 +16,8 @@ const commonResolve = {
     "@shared": resolve(__dirname, "src/types/shared"),
     "@opencc": resolve(__dirname, "native/ferrous-opencc-wasm/pkg"),
     "@native": resolve(__dirname, "native"),
+    "@folia-stage": resolve(__dirname, "src/folia/mount.tsx"),
+    "@folia-tuning": resolve(__dirname, "src/folia/tuning-schema.ts"),
   },
 };
 
@@ -59,10 +61,15 @@ export default defineConfig(({ mode }) => {
     // 渲染进程
     renderer: {
       root: ".",
+      esbuild: {
+        jsx: "automatic",
+      },
       plugins: [
         vue(),
         // mode === "development" && VueDevTools(),
         AutoImport({
+          // Folia 渲染层是 React 代码
+          exclude: [/[\\/]node_modules[\\/]/, /[\\/]src[\\/]folia[\\/]/],
           imports: [
             "vue",
             "vue-router",

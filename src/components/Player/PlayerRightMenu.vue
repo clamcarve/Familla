@@ -1,9 +1,24 @@
 <template>
   <n-flex :size="8" align="center" class="right-menu">
+    <!-- 特效中心 -->
+    <n-button
+      class="effects-entry"
+      size="small"
+      round
+      strong
+      secondary
+      :type="settingStore.foliaStyle === FOLIA_OFF ? 'default' : 'primary'"
+      @click.stop="openFoliaEffects"
+    >
+      <template #icon>
+        <SvgIcon name="AutoFix" />
+      </template>
+      特效
+    </n-button>
     <!-- 音质 -->
     <template v-if="settingStore.showPlayerQuality">
       <n-popselect
-        v-if="isOnlineSong"
+        v-if="canSwitchQuality"
         v-model:show="showQualityPopover"
         :value="currentPlayingLevel"
         :options="qualityOptions"
@@ -29,14 +44,6 @@
           </n-tag>
         </div>
       </n-popselect>
-      <n-popover v-else trigger="hover" placement="top" :show-arrow="false">
-        <template #trigger>
-          <n-tag class="quality-tag hidden" type="primary" size="small">
-            {{ getQualityName(statusStore.songQuality) }}
-          </n-tag>
-        </template>
-        <span>当前歌曲不支持切换音质</span>
-      </n-popover>
     </template>
     <!-- 桌面歌词 -->
     <n-badge
@@ -80,6 +87,15 @@
         <n-text class="slider-num hidden">{{ statusStore.playVolumePercent }}%</n-text>
       </div>
     </n-popover>
+    <!-- 下载 -->
+    <div
+      v-if="canDownloadCurrentSong"
+      class="menu-icon hidden"
+      title="下载当前歌曲"
+      @click.stop="downloadCurrentSong"
+    >
+      <SvgIcon name="Download" />
+    </div>
     <!-- 播放列表 -->
     <n-badge
       v-if="!statusStore.personalFmMode"
@@ -102,16 +118,34 @@ import { usePlayerController } from "@/core/player/PlayerController";
 import { useDataStore, useSettingStore, useStatusStore, useMusicStore } from "@/stores";
 import { isElectron } from "@/utils/env";
 import { renderIcon } from "@/utils/helper";
-import { openAutoClose, openChangeRate, openEqualizer, openABLoop } from "@/utils/modal";
+import {
+  openAutoClose,
+  openChangeRate,
+  openEqualizer,
+  openABLoop,
+  openFoliaEffects,
+} from "@/utils/modal";
+import { FOLIA_OFF } from "@/core/folia/catalog";
 import { useAudioManager } from "@/core/player/AudioManager";
 import type { DropdownOption } from "naive-ui";
 import { useQualityControl } from "@/composables/useQualityControl";
+import { useDownloadManager } from "@/core/resource/DownloadManager";
 
 const dataStore = useDataStore();
 const statusStore = useStatusStore();
 const settingStore = useSettingStore();
 const musicStore = useMusicStore();
 const player = usePlayerController();
+const downloadManager = useDownloadManager();
+
+const canDownloadCurrentSong = computed(
+  () => musicStore.playSong.type === "song" && !musicStore.playSong.path,
+);
+
+const downloadCurrentSong = () => {
+  const added = downloadManager.addDownload(musicStore.playSong, settingStore.downloadSongLevel);
+  if (added) window.$message.success("已添加到下载任务");
+};
 
 const {
   currentPlayingLevel,
@@ -119,7 +153,7 @@ const {
   loadQualities,
   handleQualitySelect,
   getQualityName,
-  isOnlineSong,
+  canSwitchQuality,
 } = useQualityControl();
 
 const showQualityPopover = ref(false);

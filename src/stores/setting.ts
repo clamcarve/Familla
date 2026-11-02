@@ -1,3 +1,7 @@
+import {
+  DEFAULT_AUDIO_EFFECT_SETTINGS,
+  type AudioEffectSettings,
+} from "@/core/audio-player/effects/audioEffects";
 import { TimeFormat } from "@/composables/useTimeFormat";
 import { SongUnlockServer } from "@/core/player/SongManager";
 import type { SongLevelType } from "@/types/main";
@@ -103,6 +107,8 @@ export interface SettingState {
   cacheEnabled: boolean;
   /** 是否缓存歌曲（音频文件） */
   songCacheEnabled: boolean;
+  /** 歌曲临时缓存上限（MB） */
+  songCacheLimit: number;
   /** 音乐命名格式 */
   fileNameFormat: "title" | "artist-title" | "title-artist";
   /** 文件智能分类 */
@@ -153,6 +159,31 @@ export interface SettingState {
     | "jymaster";
   /** 第三方平台默认音质 */
   thirdPartySongQuality: ThirdPartyQualityLevel;
+  /** 全屏歌词特效样式，off 为关闭 */
+  foliaStyle: string;
+  /** 上次使用的歌词特效样式 */
+  foliaLastStyle: string;
+  /** 歌词特效背景 */
+  foliaBackground: string;
+  /** 各样式的调节项 */
+  foliaTunings: Record<string, Record<string, any>>;
+  /** 通用背景选项 */
+  foliaBackgroundOptions: {
+    useCoverColorBg: boolean;
+    opacity: number;
+    disableGeometricBackground: boolean;
+    disableVignette: boolean;
+  };
+  /** 漫游背景效果 */
+  foliaNomandEffect: string;
+  /** 智能节拍模式 */
+  foliaSmartBeatMode: "off" | "cached" | "on";
+  /** 智能节拍各效果设置 */
+  foliaBeatEffects: Record<string, { on: boolean; strength: number }>;
+  /** 是否开启音效 */
+  audioEffectsEnabled: boolean;
+  /** 音效参数 */
+  audioEffects: AudioEffectSettings;
   /** 播放设备 */
   playDevice: "default" | string;
   /** 音频引擎: element (原生) 或 ffmpeg */
@@ -520,6 +551,21 @@ export const useSettingStore = defineStore("setting", {
     useKeepAlive: true,
     songLevel: "exhigh",
     thirdPartySongQuality: "128k",
+    foliaStyle: "off",
+    foliaLastStyle: "classic",
+    foliaBackground: "common",
+    foliaTunings: {},
+    foliaBackgroundOptions: {
+      useCoverColorBg: true,
+      opacity: 0.72,
+      disableGeometricBackground: false,
+      disableVignette: false,
+    },
+    foliaNomandEffect: "dithering",
+    foliaSmartBeatMode: "off",
+    foliaBeatEffects: {},
+    audioEffectsEnabled: false,
+    audioEffects: { ...DEFAULT_AUDIO_EFFECT_SETTINGS },
     playDevice: "default",
     audioEngine: "element",
     audioLatencyHint: "interactive",
@@ -626,6 +672,7 @@ export const useSettingStore = defineStore("setting", {
     downloadThreadCount: 8,
     cacheEnabled: true,
     songCacheEnabled: true,
+    songCacheLimit: 500,
     fileNameFormat: "title-artist",
     folderStrategy: "none",
     downloadMeta: true,

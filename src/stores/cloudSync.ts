@@ -1,9 +1,10 @@
 import { defineStore } from "pinia";
-import type { CloudPopup, CloudUserInfo } from "@/api/cloudSync";
+import type { CloudPopup, CloudUserInfo, MembershipStatus } from "@/api/cloudSync";
 
 interface CloudSyncState {
   token: string;
   user: CloudUserInfo | null;
+  membership: MembershipStatus | null;
   lastReadPopupId: number | null;
 }
 
@@ -11,6 +12,7 @@ export const useCloudSyncStore = defineStore("cloud-sync", {
   state: (): CloudSyncState => ({
     token: "",
     user: null,
+    membership: null,
     lastReadPopupId: null,
   }),
   getters: {
@@ -26,6 +28,21 @@ export const useCloudSyncStore = defineStore("cloud-sync", {
     clearSession() {
       this.token = "";
       this.user = null;
+      this.membership = null;
+    },
+    setUser(user: CloudUserInfo | null) {
+      this.user = user;
+    },
+    setMembership(membership: MembershipStatus | null) {
+      this.membership = membership;
+    },
+    setRemainingToday(remaining: number) {
+      if (!this.membership) return;
+      this.membership.remaining_today = Math.max(0, remaining);
+      this.membership.used_today = Math.max(
+        0,
+        this.membership.daily_limit - this.membership.remaining_today,
+      );
     },
     markPopupRead(popup: CloudPopup | null) {
       this.lastReadPopupId = popup?.id ?? null;

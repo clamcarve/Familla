@@ -361,7 +361,7 @@ const songMoreOptions = computed<DropdownOption[]>(() => {
         onClick: () =>
           openPlaylistAdd(
             [song],
-            song.path ? "local" : song.platform && song.platform !== "netease" ? "my" : "online",
+            song.path ? "local" : song.platform && song.platform !== "netease" ? "my" : "choice",
           ),
       },
       icon: renderIcon("AddList"),

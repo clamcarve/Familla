@@ -1,19 +1,29 @@
 import { personalFm, personalFmToTrash } from "@/api/rec";
 import {
-  getPlatformStreamUrl,
   getThirdPartyTrackIds,
   mapThirdPartyQualityToType,
+  parsePlatformSong,
+  type ThirdPartyQualityLevel,
 } from "@/api/tunefree";
+import { KugouLoginRequiredError, resolveKugouSong } from "@/api/kugou";
 import { songQuality, songUrl, unlockSongUrl } from "@/api/song";
+import { findAlternativeSource } from "@/core/player/sourceSwitch";
 import { useLyricManager } from "@/core/player/LyricManager";
 import {
   useDataStore,
+  useCloudSyncStore,
+  useKugouStore,
   useMusicStore,
   useSettingStore,
   useStatusStore,
   useStreamingStore,
 } from "@/stores";
-import { QualityType, type SongType, type AudioSourceType } from "@/types/main";
+import {
+  QualityType,
+  type SongType,
+  type AudioSourceType,
+  type MusicPlatformType,
+} from "@/types/main";
 import { isLogin } from "@/utils/auth";
 import { isElectron } from "@/utils/env";
 import { formatSongsList } from "@/utils/format";
@@ -21,6 +31,12 @@ import { toFileUrl } from "@/utils/fileUrl";
 import { AI_AUDIO_LEVELS } from "@/utils/meta";
 import { handleSongQuality } from "@/utils/helper";
 import { openUserLogin } from "@/utils/modal";
+
+const SONG_CACHE_DELAY = 5000;
+const SONG_CACHE_QUALITY_KEY = "song-cache-qualities";
+const SONG_CACHE_QUALITY_LIMIT = 1000;
+
+type CachedQualities = Record<string, ThirdPartyQualityLevel>;
 
 /**
  * 歌曲解锁服务器
@@ -55,22 +71,123 @@ export type AudioSource = {
 class SongManager {
   /** 预载下一首歌曲播放信息 */
   private nextPrefetch: AudioSource | undefined;
+  /** 等待写入临时缓存的任务 */
+  private songCacheTimer: ReturnType<typeof setTimeout> | undefined;
 
-  private buildThirdPartyAudioSource(song: SongType): AudioSource {
+  private readCachedQualities(): CachedQualities {
+    try {
+      return JSON.parse(localStorage.getItem(SONG_CACHE_QUALITY_KEY) || "{}");
+    } catch {
+      return {};
+    }
+  }
+
+  // 命中临时缓存时不请求服务器
+  private async getCachedAudioSource(
+    song: SongType,
+    quality: ThirdPartyQualityLevel,
+    platform: MusicPlatformType,
+  ): Promise<AudioSource | null> {
+    const cachedPath = await this.getMusicCachePath(song.id, quality);
+    if (!cachedPath) return null;
+    console.log(`🚀 [${song.id}] 使用临时缓存播放`);
+    const actualQuality = this.readCachedQualities()[`${song.id}:${quality}`] || quality;
+    return {
+      id: song.id,
+      url: toFileUrl(cachedPath),
+      isUnlocked: false,
+      quality: mapThirdPartyQualityToType(actualQuality),
+      source: platform,
+    };
+  }
+
+  // 听满几秒再缓存，快速切歌时不产生下载
+  private scheduleSongCache(
+    song: SongType,
+    url: string,
+    quality: ThirdPartyQualityLevel,
+    actualQuality: ThirdPartyQualityLevel,
+  ) {
     const settingStore = useSettingStore();
+    if (!isElectron || !settingStore.cacheEnabled || !settingStore.songCacheEnabled) return;
+    clearTimeout(this.songCacheTimer);
+    this.songCacheTimer = setTimeout(async () => {
+      if (useMusicStore().playSong?.id !== song.id) return;
+      const cachedPath = await this.ensureMusicCachePath(song.id, url, quality);
+      if (!cachedPath) return;
+      const qualities = this.readCachedQualities();
+      delete qualities[`${song.id}:${quality}`];
+      qualities[`${song.id}:${quality}`] = actualQuality;
+      const keys = Object.keys(qualities);
+      for (const key of keys.slice(0, Math.max(0, keys.length - SONG_CACHE_QUALITY_LIMIT))) {
+        delete qualities[key];
+      }
+      try {
+        localStorage.setItem(SONG_CACHE_QUALITY_KEY, JSON.stringify(qualities));
+      } catch (error) {
+        console.warn("保存缓存音质失败:", error);
+      }
+    }, SONG_CACHE_DELAY);
+  }
+
+  private async buildPlatformAudioSource(song: SongType): Promise<AudioSource> {
+    const settingStore = useSettingStore();
+    const cloudSyncStore = useCloudSyncStore();
     const trackIds = getThirdPartyTrackIds(song);
     const trackId = trackIds[0];
-    if (!song.platform || !trackId) {
+    const platform = song.platform || "netease";
+    if (!trackId) {
       return { id: song.id, url: undefined };
     }
     const quality = settingStore.thirdPartySongQuality;
+    const cachedSource = await this.getCachedAudioSource(song, quality, platform);
+    if (cachedSource) return cachedSource;
+    if (platform === "kugou") return await this.buildKugouAudioSource(song, quality);
+    const result = await parsePlatformSong(cloudSyncStore.token, platform, trackId, quality);
+    if (result.remainingToday !== undefined) {
+      cloudSyncStore.setRemainingToday(result.remainingToday);
+    }
+    this.scheduleSongCache(song, result.url, quality, result.actualQuality);
     return {
       id: song.id,
-      url: getPlatformStreamUrl(song.platform, trackId, quality),
+      url: result.url,
       isUnlocked: false,
-      quality: mapThirdPartyQualityToType(quality),
-      source: song.platform,
+      quality: mapThirdPartyQualityToType(result.actualQuality),
+      source: platform,
     };
+  }
+
+  // 酷狗不经过后端，失败时换到其他平台同名歌曲
+  private async buildKugouAudioSource(
+    song: SongType,
+    quality: ThirdPartyQualityLevel,
+  ): Promise<AudioSource> {
+    const kugouStore = useKugouStore();
+    try {
+      const result = await resolveKugouSong(kugouStore.cookie, song, quality);
+      this.scheduleSongCache(song, result.url, quality, result.actualQuality);
+      return {
+        id: song.id,
+        url: result.url,
+        isUnlocked: false,
+        quality: mapThirdPartyQualityToType(result.actualQuality),
+        source: "kugou",
+      };
+    } catch (error) {
+      const alternative = await findAlternativeSource(song, quality);
+      if (!alternative) throw error;
+      console.warn(`🔀 [${song.id}] 酷狗不可用，已换源到 ${alternative.platform}:`, error);
+      if (error instanceof KugouLoginRequiredError) {
+        window.$message.info(`${error.message}，已换到其他平台同名歌曲播放`);
+      }
+      return {
+        id: song.id,
+        url: alternative.url,
+        isUnlocked: false,
+        quality: mapThirdPartyQualityToType(alternative.actualQuality),
+        source: alternative.platform,
+      };
+    }
   }
 
   public peekPrefetch(id: number): AudioSource | undefined {
@@ -109,6 +226,7 @@ class SongManager {
         id,
         url,
         quality || "standard",
+        settingStore.songCacheLimit,
       );
       if (result && typeof result === "object") {
         const record = result as Record<string, unknown>;
@@ -400,17 +518,6 @@ class SongManager {
         if (!nextSong?.id) return;
         this.prefetchCover(nextSong);
         lyricManager.prefetchLyric(nextSong);
-        const { url, isTrial, quality } = await this.getOnlineUrl(nextSong.id, false);
-        if (url && !isTrial) {
-          this.nextPrefetch = {
-            id: nextSong.id,
-            url,
-            isUnlocked: false,
-            quality,
-            source: "official",
-          };
-          return this.nextPrefetch;
-        }
         return;
       }
       // 无播放列表直接跳过
@@ -448,10 +555,9 @@ class SongManager {
         return this.nextPrefetch;
       }
 
-      // 第三方平台歌曲
-      if (nextSong.platform && nextSong.platform !== "netease") {
-        this.nextPrefetch = this.buildThirdPartyAudioSource(nextSong);
-        return this.nextPrefetch;
+      // 在线歌曲统一走后端代理
+      if (nextSong.type === "song") {
+        return;
       }
 
       // 在线歌曲：优先官方，其次解灰
@@ -539,9 +645,9 @@ class SongManager {
       };
     }
 
-    // 第三方平台歌曲
-    if (song.platform && song.platform !== "netease") {
-      return this.buildThirdPartyAudioSource(song);
+    // 在线歌曲统一走后端代理
+    if (song.type === "song") {
+      return await this.buildPlatformAudioSource(song);
     }
 
     // 在线歌曲

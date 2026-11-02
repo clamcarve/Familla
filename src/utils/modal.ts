@@ -10,7 +10,7 @@ import { CURRENT_AGREEMENT_VERSION } from "@/constants/agreement";
 import { NScrollbar } from "naive-ui";
 import { isLogin } from "./auth";
 import { isArray, isFunction } from "lodash-es";
-import { useCloudSyncStore, useDataStore, useSettingStore } from "@/stores";
+import { useCloudSyncStore, useSettingStore } from "@/stores";
 import router from "@/router";
 import type { StreamingServerConfig as StreamingServerConfigType } from "@/types/streaming";
 
@@ -158,6 +158,49 @@ export const openUserLogin = async (
   });
 };
 
+// 特效中心
+export const openFoliaEffects = async () => {
+  if (isModalOpen("folia-effects", "特效中心已打开")) return;
+  setModalOpen("folia-effects");
+  const { default: FoliaEffects } = await import("@/components/Modal/FoliaEffects.vue");
+  window.$modal.create({
+    preset: "card",
+    title: "特效中心",
+    transformOrigin: "center",
+    autoFocus: false,
+    style: { width: "720px", maxWidth: "calc(100vw - 32px)" },
+    content: () => h(FoliaEffects),
+    onAfterLeave: () => {
+      setModalClosed("folia-effects");
+    },
+  });
+};
+
+// 酷狗概念版登录
+export const openKugouLogin = async () => {
+  if (isModalOpen("kugou-login", "酷狗登录窗口已打开")) return;
+  setModalOpen("kugou-login");
+  const { default: KugouLogin } = await import("@/components/Modal/KugouLogin.vue");
+  const modal = window.$modal.create({
+    preset: "card",
+    title: "登录酷狗概念版",
+    transformOrigin: "center",
+    autoFocus: false,
+    maskClosable: false,
+    closeOnEsc: false,
+    closable: false,
+    style: { width: "360px", maxWidth: "calc(100vw - 32px)" },
+    content: () => {
+      return h(KugouLogin, {
+        onClose: () => modal.destroy(),
+      });
+    },
+    onAfterLeave: () => {
+      setModalClosed("kugou-login");
+    },
+  });
+};
+
 // 云端同步
 export const openCloudSync = async () => {
   if (isModalOpen("cloud-sync", "云端面板已打开")) return;
@@ -170,7 +213,7 @@ export const openCloudSync = async () => {
     maskClosable: false,
     closeOnEsc: false,
     closable: false,
-    style: { width: "420px" },
+    style: { width: "520px", maxWidth: "calc(100vw - 32px)" },
     content: () => {
       return h(CloudSync, {
         onClose: () => modal.destroy(),
@@ -233,7 +276,7 @@ export const openPlaylistAdd = async (data: SongType[], mode: PlaylistStorageMod
     transformOrigin: "center",
     autoFocus: false,
     style: { width: "600px" },
-    title: mode === "local" ? "添加到本地歌单" : mode === "my" ? "添加到我的歌单" : "添加到歌单",
+    title: mode === "local" ? "添加到本地歌单" : mode === "my" ? "添加到 mobi 歌单" : "添加到歌单",
     content: () => {
       return h(PlaylistAdd, { data, mode, onClose: () => modal.destroy() });
     },
@@ -326,13 +369,10 @@ export const openUpdatePlaylist = async (
 };
 
 // 下载歌曲
-export const openDownloadSong = async (song: SongType) => {
-  const dataStore = useDataStore();
-  if (!isLogin()) return openUserLogin();
-  // 是否可下载
-  if (!song) return window.$message.warning("请正确选择歌曲");
-  if (song.free !== 0 && dataStore.userData.vipType === 0 && !song?.pc) {
-    return window.$message.warning("账号会员等级不足，请提升权限");
+export const openDownloadSong = async (song: SongType): Promise<void> => {
+  if (!song) {
+    window.$message.warning("请正确选择歌曲");
+    return;
   }
   const { default: DownloadModal } = await import("@/components/Modal/DownloadModal.vue");
   const modal = window.$modal.create({
@@ -342,14 +382,13 @@ export const openDownloadSong = async (song: SongType) => {
     style: { width: "600px" },
     title: "下载歌曲",
     content: () => {
-      return h(DownloadModal, { songId: song.id, onClose: () => modal.destroy() });
+      return h(DownloadModal, { songs: [song], onClose: () => modal.destroy() });
     },
   });
 };
 
 // 批量下载歌曲
 export const openDownloadSongs = async (songs: SongType[]): Promise<void> => {
-  if (!isLogin()) return openUserLogin();
   if (!songs || songs.length === 0) {
     window.$message.warning("请选择要下载的歌曲");
     return;
@@ -364,6 +403,22 @@ export const openDownloadSongs = async (songs: SongType[]): Promise<void> => {
     content: () => {
       return h(DownloadModal, { songs, onClose: () => modal.destroy() });
     },
+  });
+};
+
+// 打开下载任务
+export const openDownloadTasks = async () => {
+  if (isModalOpen("downloadTasks", "下载任务已打开")) return;
+  setModalOpen("downloadTasks");
+  const { default: DownloadTasks } = await import("@/components/Modal/DownloadTasks.vue");
+  window.$modal.create({
+    preset: "card",
+    transformOrigin: "center",
+    autoFocus: false,
+    style: { width: "600px" },
+    title: "下载任务",
+    content: () => h(DownloadTasks),
+    onAfterLeave: () => setModalClosed("downloadTasks"),
   });
 };
 

@@ -306,7 +306,7 @@ const menuOptions: MenuOption[] = [
   },
   {
     key: "local",
-    label: "本地与缓存",
+    label: "本地、下载与缓存",
     show: isElectron,
     icon: renderIcon("Storage"),
   },

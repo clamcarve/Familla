@@ -130,10 +130,10 @@ const initCacheIpc = (): void => {
   // 下载并缓存音乐
   ipcMain.handle(
     "music-cache-download",
-    async (_event, id: number | string, url: string, quality?: string) => {
+    async (_event, id: number | string, url: string, quality?: string, limitMB?: number) => {
       try {
         const qualitySuffix = quality || "standard";
-        const path = await musicCacheService.cacheMusic(id, url, qualitySuffix);
+        const path = await musicCacheService.cacheMusic(id, url, qualitySuffix, limitMB);
         return { success: true, path };
       } catch (error: any) {
         processLog.error("Download music cache failed:", error);

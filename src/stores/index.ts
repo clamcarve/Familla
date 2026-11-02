@@ -9,6 +9,7 @@ export { platformValueOptions, usePlatformStore } from "./platform";
 export { useLocalStore } from "./local";
 export { useMyPlaylistStore } from "./myPlaylist";
 export { useCloudSyncStore } from "./cloudSync";
+export { useKugouStore } from "./kugou";
 
 // streaming-localforage
 export { useStreamingStore } from "./streaming";

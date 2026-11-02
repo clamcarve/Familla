@@ -1,7 +1,7 @@
-import { useDataStore, useMusicStore, useSettingStore } from "@/stores";
+import { useDataStore, useKugouStore, useMusicStore, useSettingStore } from "@/stores";
 import { usePlayerController } from "@/core/player/PlayerController";
 import { isElectron } from "@/utils/env";
-import { openExcludeComment } from "@/utils/modal";
+import { openExcludeComment, openKugouLogin } from "@/utils/modal";
 import { sendRegisterProtocol } from "@/utils/protocol";
 import { SettingConfig } from "@/types/settings";
 import { NAlert } from "naive-ui";
@@ -10,6 +10,7 @@ export const useGeneralSettings = (): SettingConfig => {
   const dataStore = useDataStore();
   const musicStore = useMusicStore();
   const settingStore = useSettingStore();
+  const kugouStore = useKugouStore();
   const player = usePlayerController();
 
   const useOnlineService = ref(settingStore.useOnlineService);
@@ -257,6 +258,34 @@ export const useGeneralSettings = (): SettingConfig => {
                 handleOrpheusChange(v);
               },
             }),
+          },
+        ],
+      },
+      {
+        title: "酷狗概念版",
+        items: [
+          {
+            key: "kugouAccount",
+            label: "酷狗账号",
+            type: "button",
+            description: () => {
+              if (!kugouStore.isLoggedIn) return "扫码登录后可播放酷狗歌曲，并每天自动领取畅听 VIP";
+              return kugouStore.checkInMessage || `已登录${kugouStore.nickname}`;
+            },
+            buttonLabel: computed(() => (kugouStore.isLoggedIn ? "退出登录" : "扫码登录")),
+            action: () => {
+              if (kugouStore.isLoggedIn) kugouStore.logout();
+              else void openKugouLogin();
+            },
+          },
+          {
+            key: "kugouCheckIn",
+            label: "领取畅听 VIP",
+            type: "button",
+            description: "每天启动时自动领取，也可以手动重试",
+            show: () => kugouStore.isLoggedIn,
+            buttonLabel: "立即领取",
+            action: () => void kugouStore.checkIn(),
           },
         ],
       },

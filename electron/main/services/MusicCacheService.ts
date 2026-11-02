@@ -1,8 +1,9 @@
 import { existsSync, createReadStream } from "fs";
-import { rename, stat, unlink } from "fs/promises";
+import { rename, stat, unlink, utimes } from "fs/promises";
 import { createHash } from "crypto";
 import { cacheLog } from "../logger";
 import { useStore } from "../store";
+import { detectAudioType } from "../utils/audio-type";
 import { loadNativeModule } from "../utils/native-loader";
 import { CacheService } from "./CacheService";
 
@@ -25,6 +26,10 @@ export class MusicCacheService {
     mq: 50,
     lq: 40,
     standard: 40,
+    flac24bit: 80,
+    flac: 70,
+    "320k": 60,
+    "128k": 40,
   };
 
   private constructor() {
@@ -142,6 +147,9 @@ export class MusicCacheService {
       const { filePath, quality: candidateQuality } = candidate;
       // 无需校验哈希时，命中即返回
       if (!expectedMD5) {
+        // 记录最近播放，清理时优先保留
+        const now = new Date();
+        await utimes(filePath, now, now).catch(() => {});
         return filePath;
       }
       try {
@@ -169,13 +177,40 @@ export class MusicCacheService {
   }
 
   /**
+   * 清理最久未播放的歌曲直到不超过上限
+   * @param limitMB 上限（MB）
+   * @param keepKey 刚写入的缓存，不参与清理
+   */
+  private async enforceLimit(limitMB: number, keepKey: string): Promise<void> {
+    const limitBytes = limitMB * 1024 * 1024;
+    const items = await this.cacheService.list("music");
+    let total = items.reduce((sum, item) => sum + item.size, 0);
+    const oldestFirst = [...items].sort((a, b) => a.atime - b.atime);
+    for (const item of oldestFirst) {
+      if (total <= limitBytes) break;
+      if (item.key === keepKey) continue;
+      try {
+        await this.cacheService.remove("music", item.key);
+        total -= item.size;
+      } catch (e) {
+        cacheLog.warn(`[MusicCache] 清理缓存失败: ${item.key}`, e);
+      }
+    }
+  }
+
+  /**
    * 缓存音乐
    * @param id 歌曲ID
    * @param url 音乐下载地址
    * @param quality 音质标识
    * @returns 缓存后的本地文件路径
    */
-  public async cacheMusic(id: number | string, url: string, quality: string): Promise<string> {
+  public async cacheMusic(
+    id: number | string,
+    url: string,
+    quality: string,
+    limitMB?: number,
+  ): Promise<string> {
     const key = this.getCacheKey(id, quality);
     // 检查是否已有相同的下载任务在进行中
     if (this.downloadingTasks.has(key)) {
@@ -224,11 +259,16 @@ export class MusicCacheService {
           throw new Error("下载的文件为空");
         }
 
+        // 错误页面不写入缓存
+        await detectAudioType(tempPath);
+
         // 下载成功后，将临时文件重命名为正式缓存文件
         await rename(tempPath, filePath);
 
         // 更新 CacheService 的大小记录
         await this.cacheService.notifyFileChange("music", key);
+
+        if (limitMB) await this.enforceLimit(limitMB, key);
 
         return filePath;
       } catch (error) {
@@ -245,9 +285,11 @@ export class MusicCacheService {
     this.downloadingTasks.set(key, downloadPromise);
 
     // 任务完成后（无论成功失败）从 Map 中移除
-    downloadPromise.finally(() => {
-      this.downloadingTasks.delete(key);
-    });
+    downloadPromise
+      .finally(() => {
+        this.downloadingTasks.delete(key);
+      })
+      .catch(() => {});
 
     return downloadPromise;
   }

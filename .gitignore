@@ -40,3 +40,8 @@ docs/.vitepress/dist
 .trae/*
 .cursor/*
 .claude/*
+
+# 本地凭据与产物
+.mcp.json
+.codex/
+dist-*/

@@ -3,15 +3,23 @@ import { useDataStore, useSettingStore } from "@/stores";
 import { isElectron } from "@/utils/env";
 import { saveAs } from "file-saver";
 import { cloneDeep } from "lodash-es";
-import { songDownloadUrl, songLyric, songUrl, unlockSongUrl, songLyricTTML } from "@/api/song";
+import { songLyric, songLyricTTML } from "@/api/song";
 import { qqMusicMatch } from "@/api/qqmusic";
 import { songLevelData } from "@/utils/meta";
 import { getPlayerInfoObj } from "@/utils/format";
 import { LyricProcessor, type LyricProcessorOptions, type LyricResult } from "./LyricProcessor";
 import { albumDetail } from "@/api/album";
+import {
+  getThirdPartyTrackIds,
+  mapThirdPartySettingQuality,
+  parsePlatformSong,
+} from "@/api/tunefree";
+import { resolveKugouSong } from "@/api/kugou";
+import { useCloudSyncStore, useKugouStore } from "@/stores";
 
 const albumArtistCache = new Map<number, string[] | Promise<string[]>>();
 const MAX_ALBUM_ARTIST_CACHE_SIZE = 100;
+const MAX_DOWNLOAD_TASKS = 50;
 
 interface DownloadConfig {
   fileName: string;
@@ -51,7 +59,6 @@ interface DownloadStrategy {
  */
 class SongDownloadStrategy implements DownloadStrategy {
   private settingStore = useSettingStore();
-  private dataStore = useDataStore();
 
   // prepare 阶段准备的状态
   private _downloadUrl = "";
@@ -258,79 +265,22 @@ class SongDownloadStrategy implements DownloadStrategy {
   }
 
   private async resolveUrl(): Promise<{ url: string; type: string }> {
-    const usePlayback = this.settingStore.usePlaybackForDownload;
-    const levelName = songLevelData[this.quality].level;
-
-    // 尝试使用播放链接
-    if (usePlayback) {
-      try {
-        const result = await songUrl(this.song.id, levelName as Parameters<typeof songUrl>[1]);
-        if (result.code === 200 && result?.data?.[0]?.url) {
-          return {
-            url: result.data[0].url,
-            type: (result.data[0].type || result.data[0].encodeType || "mp3").toLowerCase(),
-          };
-        }
-      } catch (e) {
-        console.error("Error fetching playback url for download:", e);
-      }
+    const cloudSyncStore = useCloudSyncStore();
+    const platform = this.song.platform || "netease";
+    const trackId = getThirdPartyTrackIds(this.song)[0];
+    if (!trackId) throw new Error("缺少歌曲平台 ID");
+    const quality = mapThirdPartySettingQuality(songLevelData[this.quality].level);
+    if (platform === "kugou") {
+      const kugou = await resolveKugouSong(useKugouStore().cookie, this.song, quality);
+      return { url: kugou.url, type: kugou.fileType };
     }
-
-    // 尝试使用解锁链接
-    const isVipUser = this.dataStore.userData?.vipType > 0;
-    const isRestricted = this.song.free === 1 || this.song.free === 4 || this.song.free === 8;
-    const canUseUnlock = !isRestricted || isVipUser;
-
-    if (this.settingStore.useUnlockForDownload && canUseUnlock) {
-      try {
-        const servers = this.settingStore.songUnlockServer
-          .filter((s) => s.enabled)
-          .map((s) => s.key);
-        const artist =
-          (Array.isArray(this.song.artists)
-            ? this.song.artists.map((a) => a.name).join(" & ")
-            : this.song.artists) || "";
-        const keyWord = `${this.song.name}-${artist}`;
-
-        if (servers.length > 0) {
-          const results = await Promise.allSettled(
-            servers.map((server) =>
-              unlockSongUrl(this.song.id, keyWord, server, this.song.name, String(artist)).then(
-                (result) => ({
-                  server,
-                  result,
-                  success: result.code === 200 && !!result.url,
-                }),
-              ),
-            ),
-          );
-
-          for (const r of results) {
-            if (r.status === "fulfilled" && r.value.success) {
-              const unlockUrl = r.value?.result?.url;
-              if (unlockUrl) {
-                const extensionMatch = unlockUrl.match(/\.([a-z0-9]+)(?:[?#]|$)/i);
-                return {
-                  url: unlockUrl,
-                  type: extensionMatch ? extensionMatch[1].toLowerCase() : "mp3",
-                };
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.error("Error fetching unlock url for download:", e);
-      }
-    }
-
-    // 标准下载流程
-    const result = await songDownloadUrl(this.song.id, this.quality);
-    if (result.code !== 200 || !result?.data?.url) {
-      throw new Error(result.message || "获取下载链接失败");
+    const result = await parsePlatformSong(cloudSyncStore.token, platform, trackId, quality);
+    if (result.remainingToday !== undefined) {
+      cloudSyncStore.setRemainingToday(result.remainingToday);
     }
     return {
-      url: result.data.url,
-      type: result.data.type?.toLowerCase() || "mp3",
+      url: result.url,
+      type: result.fileType,
     };
   }
   /**
@@ -452,14 +402,22 @@ class DownloadManager {
    * @param song 歌曲信息
    * @param quality 歌曲质量
    */
-  public async addDownload(song: SongType, quality: SongLevelType) {
+  public addDownload(song: SongType, quality: SongLevelType): boolean {
     this.init();
     const dataStore = useDataStore();
-    if (this.checkExisting(song.id)) return;
+    if (this.checkExisting(song.id)) {
+      window.$message.info("歌曲已在下载任务中");
+      return false;
+    }
+    if (dataStore.downloadingSongs.length >= MAX_DOWNLOAD_TASKS) {
+      window.$message.warning("已达到同时下载任务上限");
+      return false;
+    }
     dataStore.addDownloadingSong(song, quality);
     const strategy = new SongDownloadStrategy(song, quality);
     this.queue.push(strategy);
     this.processQueue();
+    return true;
   }
   /**
    * 移除下载任务

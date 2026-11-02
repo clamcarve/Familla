@@ -5,6 +5,8 @@ const config: Configuration = {
   appId: "com.clamcarve.familla",
   // 应用程序的产品名称
   productName: "Familla",
+  // 构建号，对应 Windows 文件版本
+  buildVersion: "1.0.5.5",
   copyright: "Copyright © clamcarve 2026",
   // 构建资源所在的目录
   directories: {
@@ -13,10 +15,23 @@ const config: Configuration = {
   // 包含在最终应用程序构建中的文件列表
   // 使用通配符 ! 表示排除不需要的文件
   files: [
-    "public/**",
     "out/**",
-    "!**/.vscode/*",
-    "!src/*",
+    "public/**",
+    "package.json",
+    "!**/*.map",
+    "!**/node_modules/**/{test,tests,__tests__,example,examples,docs}/**",
+    "!**/*.md",
+    "!src/**",
+    "!docs/**",
+    "!scripts/**",
+    "!web/**",
+    "!electron/**",
+    "!native/**",
+    "!target/**",
+    "!dist/**",
+    "!**/.vscode/**",
+    "!**/.idea/**",
+    "!**/.git/**",
     "!electron.vite.config.{js,ts,mjs,cjs}",
     "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}",
     "!{.env,.env.*,.npmrc,pnpm-lock.yaml}",
@@ -152,35 +167,10 @@ const config: Configuration = {
     artifactName: "${name}-${version}-${arch}.${ext}",
     // 构建类型 - 支持 x64 和 ARM64 架构
     target: [
-      // Pacman 包管理器
-      {
-        target: "pacman",
-        arch: ["x64", "arm64"],
-      },
-      // AppImage 格式
-      {
-        target: "AppImage",
-        arch: ["x64", "arm64"],
-      },
-      // Debian 包管理器
+      // Debian 包管理器（仅 x64）
       {
         target: "deb",
-        arch: ["x64", "arm64"],
-      },
-      // RPM 包管理器
-      {
-        target: "rpm",
-        arch: ["x64", "arm64"],
-      },
-      // Snap 包管理器（仅支持 x64 架构）
-      // {
-      //   target: "snap",
-      //   arch: ["x64"],
-      // },
-      // 压缩包格式
-      {
-        target: "tar.gz",
-        arch: ["x64", "arm64"],
+        arch: ["x64"],
       },
     ],
     // 维护者信息
